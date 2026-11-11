@@ -18,6 +18,7 @@ const BOT = BOT_URL.replace(/\/+$/, "");
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 app.use(session({
   name: "rolevault.sid",
@@ -129,6 +130,12 @@ input[type=text],input[type=password]{width:100%;margin:6px 0 12px}
 .chip{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:#10805b33;margin:3px 0;overflow-wrap:anywhere}
 .chip em{margin-inline-start:auto;font-style:normal;font-size:11px;background:var(--green);color:#fff;border-radius:6px;padding:1px 6px}
 .where{margin:8px 0 0;font-size:14px}
+
+[hidden]{display:none!important}
+.log{max-height:320px;overflow:auto;background:#0a1122;border:1px solid var(--line);border-radius:12px;padding:10px;margin:10px 0;font-size:14px}
+.ln{padding:3px 0;overflow-wrap:anywhere}
+.ln.ok{color:#6ee7b7}.ln.error{color:#fda4af}.ln.warn{color:#fcd34d}.ln.info{color:var(--muted)}
+.busy .btn:not(#pclose){pointer-events:none;opacity:.55}
 `;
 
 const layout = (title, body, loggedIn) => `<!doctype html>
@@ -226,232 +233,278 @@ app.post("/login", (req, res) => {
 
 app.get("/logout", (req, res) => req.session.destroy(() => res.redirect("/login")));
 
-// ============ الصفحة الرئيسية ============
-app.get("/", requireAuth, async (req, res) => {
-  let state;
-  try {
-    state = await bot("/api/state?guildId=" + encodeURIComponent(req.session.guildId || ""));
-    req.session.guildId = state.guildId;
-  } catch (e) {
-    return res.send(layout("لوحة التحكم", `
-      <section class="hero"><h1>لوحة التحكم</h1>
-        ${popFlash(req)}
-        <div class="alert error">${esc(e.message)}</div>
-        <a class="btn secondary" href="/">إعادة المحاولة</a>
-      </section>`, true));
+// ============ كود الواجهة (يتحدث مباشرة بدون ريفرش) ============
+const BUILD = Date.now();
+const clientJs = String.raw`(function(){
+var S=null,busy=false,chosen={};
+function $(i){return document.getElementById(i)}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function dot(c){var s=el('span',null,'●');s.style.color=(c&&c!=='#000000')?c:'#8c9bbf';return s}
+function api(path,method,body){
+  return fetch(path,{method:method||'GET',credentials:'same-origin',headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined})
+  .then(function(r){return r.json().catch(function(){return {}}).then(function(j){
+    if(!r.ok||j.error)throw new Error(j.error||('خطأ '+r.status));
+    return j;});});
+}
+function showMsg(t,type){var m=$('msg');m.textContent='';if(t)m.appendChild(el('div','alert '+(type||'error'),t))}
+
+/* ===== التقدم المباشر ===== */
+var ICON={ok:'✅',error:'❌',warn:'⚠️',info:'ℹ️'};
+function logLine(type,msg){var l=$('plog');l.appendChild(el('div','ln '+type,(ICON[type]||'•')+' '+msg));l.scrollTop=l.scrollHeight}
+function openProgress(title){var p=$('progress');p.hidden=false;$('ptitle').textContent=title;$('plog').textContent='';$('pclose').hidden=true;p.scrollIntoView({behavior:'smooth',block:'start'})}
+function poll(id){
+  var since=0,fails=0;
+  return new Promise(function(resolve){
+    (function tick(){
+      api('/api/job/'+encodeURIComponent(id)+'?since='+since).then(function(j){
+        fails=0;
+        j.events.forEach(function(ev){logLine(ev.type,ev.msg);if(ev.roleId)removeRoleRow(ev.roleId)});
+        since=j.next;
+        if(j.done)return resolve(j);
+        setTimeout(tick,600);
+      }).catch(function(e){
+        if(++fails>15){logLine('error','انقطع الاتصال: '+e.message);return resolve(null)}
+        setTimeout(tick,2000);
+      });
+    })();
+  });
+}
+function runJob(title,path,body){
+  if(busy){alert('فيه عملية شغالة الحين، انتظر تخلص.');return}
+  busy=true;document.body.classList.add('busy');openProgress(title);
+  api(path,'POST',body).then(function(j){return poll(j.jobId)})
+  .catch(function(e){logLine('error',e.message)})
+  .then(function(){busy=false;document.body.classList.remove('busy');$('pclose').hidden=false;return load()});
+}
+
+/* ===== الرتب (حذف) ===== */
+function updCount(){var n=0;for(var k in chosen)if(chosen[k])n++;$('count').textContent=n+' محدد'}
+function removeRoleRow(id){
+  var row=document.querySelector('#roles .role[data-id="'+id+'"]');if(row)row.remove();
+  delete chosen[id];
+  if(S)S.roles=S.roles.filter(function(r){return r.id!==id});
+  updCount();
+}
+function renderRoles(){
+  var box=$('roles');box.textContent='';var ids={};
+  S.roles.forEach(function(r){
+    ids[r.id]=1;
+    var row=el('div','role');row.dataset.id=r.id;
+    var cb=document.createElement('input');cb.type='checkbox';cb.id='r-'+r.id;cb.checked=!!chosen[r.id];
+    cb.addEventListener('change',function(){chosen[r.id]=cb.checked;updCount()});
+    var lab=el('label');lab.htmlFor=cb.id;lab.appendChild(dot(r.color));lab.appendChild(document.createTextNode(' '+r.name));
+    row.appendChild(cb);row.appendChild(lab);row.appendChild(el('small',null,String(r.position)));
+    box.appendChild(row);
+  });
+  for(var k in chosen)if(!ids[k])delete chosen[k];
+  updCount();
+}
+
+/* ===== السيرفرات ===== */
+function renderGuilds(){
+  var s=$('guildSel');s.textContent='';
+  S.guilds.forEach(function(g){var o=el('option',null,g.name);o.value=g.id;if(g.id===S.guildId)o.selected=true;s.appendChild(o)});
+}
+
+/* ===== النسخ + اختيار المكان ===== */
+function gapsFor(roles){
+  var gaps={},order=[];
+  for(var i=0;i<=roles.length;i++){
+    var above=roles[i-1],below=roles[i],g=null;
+    if(i>0&&above.editable)g={anchorId:above.id,mode:'below',label:'تحت رتبة «'+above.name+'»'};
+    else if((i===0||!above.editable)&&(i===roles.length||below.editable))g={anchorId:'top',mode:'top',label:'أعلى الرتب (تحت رتبة البوت مباشرة)'};
+    if(g){gaps[i]=g;order.push(i)}
   }
+  return {gaps:gaps,order:order};
+}
+function restorePanel(b){
+  var roles=S.roles,G=gapsFor(roles),gaps=G.gaps;
+  var sel=G.order.length?G.order[0]:-1;
+  var det=el('details','restore');
+  det.appendChild(el('summary','btn good','استعادة الرتب… (اختيار المكان)'));
+  var panel=el('div','rpanel');
+  var cols=el('div','rcols');
+  var c1=el('div');c1.appendChild(el('h3',null,'الرتب اللي بتنضاف (شيل علامة اللي ما تبيه)'));
+  var pickBox=el('div','picklist');c1.appendChild(pickBox);
+  var c2=el('div');c2.appendChild(el('h3',null,'معاينة المكان في «'+S.guildName+'» — اضغط على الخط المتقطع لتغيير المكان'));
+  var prev=el('div','preview');var where=el('div','where');c2.appendChild(prev);c2.appendChild(where);
+  cols.appendChild(c1);cols.appendChild(c2);panel.appendChild(cols);
+  var go=el('button','btn good','استعادة في المكان المحدد');go.type='button';panel.appendChild(go);
+  det.appendChild(panel);
 
-  const roleHtml = state.roles.map(r => `
-    <div class="role">
-      <input type="checkbox" name="roleIds" value="${esc(r.id)}" id="r-${esc(r.id)}">
-      <label for="r-${esc(r.id)}"><span style="color:${esc(r.color)}">●</span> ${esc(r.name)}</label>
-      <small>${r.position}</small>
-    </div>`).join("");
+  var boxes=[];
+  b.roles.forEach(function(r){
+    var lab=el('label','pick');
+    var cb=document.createElement('input');cb.type='checkbox';cb.checked=true;cb.addEventListener('change',render);
+    boxes.push({cb:cb,r:r});
+    lab.appendChild(cb);lab.appendChild(dot(r.color));lab.appendChild(el('span',null,r.name));
+    pickBox.appendChild(lab);
+  });
+  function checked(){return boxes.filter(function(x){return x.cb.checked}).map(function(x){return x.r})}
+  function render(){
+    prev.textContent='';
+    for(var i=0;i<=roles.length;i++){
+      if(gaps[i]){
+        if(i===sel){
+          var nb=el('div','newblock'),ch=checked();
+          if(!ch.length)nb.appendChild(el('div','muted','ما حددت أي رتبة'));
+          ch.forEach(function(r){var c=el('div','chip');c.appendChild(dot(r.color));c.appendChild(el('span',null,r.name));c.appendChild(el('em',null,'جديد'));nb.appendChild(c)});
+          prev.appendChild(nb);
+        }else{
+          (function(idx){var g=el('button','gap','＋ حطها هنا');g.type='button';g.addEventListener('click',function(){sel=idx;render()});prev.appendChild(g)})(i);
+        }
+      }
+      if(i<roles.length){
+        var r=roles[i],row=el('div','prow'+(r.editable?'':' locked'));
+        row.appendChild(dot(r.color));row.appendChild(el('span',null,r.name));
+        if(!r.editable)row.appendChild(el('small',null,'🔒 أعلى من البوت'));
+        prev.appendChild(row);
+      }
+    }
+    where.textContent=sel>=0?('المكان المحدد: '+gaps[sel].label):'ما فيه مكان متاح للبوت.';
+  }
+  go.addEventListener('click',function(){
+    var ch=checked();
+    if(sel<0||!ch.length){alert('حدد رتبة واحدة على الأقل ومكانها.');return}
+    if(!confirm('استعادة '+ch.length+' رتبة — '+gaps[sel].label+' ؟'))return;
+    runJob('استعادة الرتب','/api/restore',{backupId:b.id,anchorId:gaps[sel].anchorId,mode:gaps[sel].mode,pick:ch.map(function(r){return r.i})});
+  });
+  render();
+  return det;
+}
+function renderBackups(){
+  var box=$('backups');box.textContent='';
+  if(!S.backups.length){box.appendChild(el('p','muted','ما فيه نسخ محفوظة. اضغط «نسخ الرتب الآن» لإنشاء أول نسخة.'));return}
+  S.backups.forEach(function(b){
+    var row=el('div','backup');
+    var info=el('div');info.appendChild(el('b',null,b.label||'نسخة رتب'));
+    info.appendChild(el('div','muted',new Date(b.createdAt).toLocaleString('ar-SA')+' · '+b.count+' رتبة'+(b.fromGuild?' · من: '+b.fromGuild:'')));
+    var del=el('button','btn secondary','حذف النسخة');del.type='button';
+    del.addEventListener('click',function(){
+      if(!confirm('حذف النسخة الاحتياطية فقط؟'))return;
+      api('/api/backup/delete','POST',{backupId:b.id}).then(function(){return load()}).catch(function(e){showMsg(e.message)});
+    });
+    row.appendChild(info);row.appendChild(del);row.appendChild(restorePanel(b));
+    box.appendChild(row);
+  });
+}
 
-  const backupHtml = state.backups.length ? state.backups.map(b => `
-    <div class="backup">
-      <div>
-        <b>${esc(b.label || "نسخة رتب")}</b>
-        <div class="muted">${new Date(b.createdAt).toLocaleString("ar-SA")} · ${b.count} رتبة${b.fromGuild ? " · من: " + esc(b.fromGuild) : ""}</div>
-      </div>
-      <details class="restore">
-        <summary class="btn good">استعادة الرتب… (اختيار المكان)</summary>
-        <form method="post" action="/restore" class="rpanel" data-backup="${esc(b.id)}">
-          <input type="hidden" name="backupId" value="${esc(b.id)}">
-          <input type="hidden" name="anchorId" value="">
-          <input type="hidden" name="mode" value="">
-          <div class="rcols">
-            <div>
-              <h3>الرتب اللي بتنضاف (شيل علامة اللي ما تبيه)</h3>
-              <div class="picklist"></div>
-            </div>
-            <div>
-              <h3>معاينة المكان في «${esc(state.guildName)}» — اضغط على الخط المتقطع لتغيير المكان</h3>
-              <div class="preview"></div>
-              <div class="where"></div>
-            </div>
-          </div>
-          <button class="btn good" type="submit">استعادة في المكان المحدد</button>
-        </form>
-      </details>
-      <form method="post" action="/backup/delete">
-        <input type="hidden" name="backupId" value="${esc(b.id)}">
-        <button class="btn secondary" type="submit" onclick="return confirm('حذف النسخة الاحتياطية فقط؟')">حذف النسخة</button>
-      </form>
-    </div>`).join("") : `<p class="muted">ما فيه نسخ محفوظة. اضغط «نسخ الرتب الآن» لإنشاء أول نسخة.</p>`;
+/* ===== التحميل ===== */
+function load(){
+  return api('/api/state').then(function(s){S=s;showMsg('');renderGuilds();renderRoles();renderBackups()})
+  .catch(function(e){showMsg(e.message)});
+}
 
-  const safeJson = x => JSON.stringify(x).replace(/</g, "\\u003c").replace(/\u2028|\u2029/g, "");
-  const rvData = {
-    roles: state.roles.map(r => ({ id: r.id, name: r.name, color: r.color, editable: !!r.editable })),
-    backups: Object.fromEntries(state.backups.map(b => [b.id, b.roles || []]))
-  };
+$('guildSel').addEventListener('change',function(){
+  api('/api/guild','POST',{guildId:this.value}).then(function(){return load()}).catch(function(e){showMsg(e.message)});
+});
+$('selectAll').addEventListener('click',function(){S.roles.forEach(function(r){chosen[r.id]=true});renderRoles()});
+$('clearAll').addEventListener('click',function(){chosen={};renderRoles()});
+$('backupBtn').addEventListener('click',function(){
+  var inp=$('label'),label=inp.value;inp.value='';
+  runJob('نسخ الرتب','/api/backup',{label:label});
+});
+$('deleteBtn').addEventListener('click',function(){
+  var ids=Object.keys(chosen).filter(function(k){return chosen[k]});
+  if(!ids.length){alert('حدد رتبة واحدة على الأقل.');return}
+  if(!confirm('متأكد من حذف '+ids.length+' رتبة؟'))return;
+  runJob('حذف الرتب','/api/delete',{roleIds:ids});
+});
+$('pclose').addEventListener('click',function(){$('progress').hidden=true});
+load();
+})();
+`;
 
+app.get("/client.js", requireAuth, (req, res) => {
+  res.type("application/javascript").set("Cache-Control", "no-store").send(clientJs);
+});
+
+// ============ الصفحة الرئيسية ============
+app.get("/", requireAuth, (req, res) => {
   res.send(layout("لوحة إدارة الرتب", `
     <section class="hero">
       <h1>لوحة إدارة الرتب</h1>
-      <form method="post" action="/guild" class="row">
+      <div class="row">
         <span class="muted">السيرفر الحالي:</span>
-        <select name="guildId" onchange="this.form.submit()">
-          ${state.guilds.map(x => `<option value="${esc(x.id)}" ${x.id === state.guildId ? "selected" : ""}>${esc(x.name)}</option>`).join("")}
-        </select>
-      </form>
-      ${popFlash(req)}
+        <select id="guildSel"></select>
+      </div>
+      <div id="msg"></div>
+    </section>
+
+    <section class="card" id="progress" hidden>
+      <h2 id="ptitle"></h2>
+      <div class="log" id="plog"></div>
+      <button class="btn secondary" id="pclose" type="button" hidden>إغلاق</button>
     </section>
 
     <div class="grid">
       <section class="card">
         <h2>نسخ جميع الرتب</h2>
         <p class="muted">يحفظ الاسم واللون والصلاحيات والترتيب لكل الرتب غير المُدارة.</p>
-        <form method="post" action="/backup">
-          <label>اسم النسخة (اختياري)</label>
-          <input type="text" name="label" maxlength="80" placeholder="مثال: قبل التحديث">
-          <button class="btn good" type="submit">نسخ الرتب الآن</button>
-        </form>
+        <label>اسم النسخة (اختياري)</label>
+        <input type="text" id="label" maxlength="80" placeholder="مثال: قبل التحديث">
+        <button class="btn good" type="button" id="backupBtn">نسخ الرتب الآن</button>
       </section>
 
       <section class="card">
         <h2>حذف الرتب المحددة</h2>
-        <form method="post" action="/roles/delete" id="deleteForm">
-          <div class="row">
-            <button type="button" class="btn secondary" id="selectAll">تحديد الكل</button>
-            <button type="button" class="btn secondary" id="clearAll">إلغاء التحديد</button>
-            <span class="muted" id="count">0 محدد</span>
-          </div>
-          <div class="roles">${roleHtml}</div>
-          <div class="alert">الحذف نهائي. أنصحك تسوي نسخة احتياطية قبله.</div>
-          <button class="btn danger" type="submit" onclick="return confirm('متأكد من حذف الرتب المحددة؟')">حذف الرتب المحددة</button>
-        </form>
+        <div class="row">
+          <button type="button" class="btn secondary" id="selectAll">تحديد الكل</button>
+          <button type="button" class="btn secondary" id="clearAll">إلغاء التحديد</button>
+          <span class="muted" id="count">0 محدد</span>
+        </div>
+        <div class="roles" id="roles"></div>
+        <div class="alert">الحذف نهائي. أنصحك تسوي نسخة احتياطية قبله.</div>
+        <button class="btn danger" type="button" id="deleteBtn">حذف الرتب المحددة</button>
       </section>
     </div>
 
     <section class="card">
       <h2>النسخ الاحتياطية</h2>
-      ${backupHtml}
+      <div id="backups"><p class="muted">جاري التحميل…</p></div>
     </section>
 
-    <script>window.RV=${safeJson(rvData)};</script>
-    <script>
-    (function(){
-      var RV=window.RV, roles=RV.roles;
-      function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
-      function dot(c){var s=el('span',null,'●');s.style.color=(c&&c!=='#000000')?c:'#8c9bbf';return s}
-
-      // الأماكن المتاحة: بين كل رتبتين (بشرط يقدر البوت يوصلها)
-      var gaps={}, order=[];
-      for(var i=0;i<=roles.length;i++){
-        var above=roles[i-1], below=roles[i], g=null;
-        if(i>0 && above.editable) g={anchorId:above.id,mode:'below',label:'تحت رتبة «'+above.name+'»'};
-        else if((i===0||!above.editable) && (i===roles.length||below.editable)) g={anchorId:'top',mode:'top',label:'أعلى الرتب (تحت رتبة البوت مباشرة)'};
-        if(g){gaps[i]=g;order.push(i)}
-      }
-
-      document.querySelectorAll('form.rpanel').forEach(function(f){
-        var list=RV.backups[f.dataset.backup]||[];
-        var pickBox=f.querySelector('.picklist'), prev=f.querySelector('.preview'), where=f.querySelector('.where');
-        var aIn=f.querySelector('[name=anchorId]'), mIn=f.querySelector('[name=mode]');
-        var sel=order.length?order[0]:-1;
-
-        list.forEach(function(r){
-          var lab=el('label','pick');
-          var cb=document.createElement('input');cb.type='checkbox';cb.name='pick';cb.value=r.i;cb.checked=true;
-          cb.addEventListener('change',render);
-          lab.appendChild(cb);lab.appendChild(dot(r.color));lab.appendChild(el('span',null,r.name));
-          pickBox.appendChild(lab);
-        });
-
-        function checked(){return list.filter(function(r){
-          var c=pickBox.querySelector('input[value="'+r.i+'"]');return c&&c.checked})}
-
-        function render(){
-          prev.textContent='';
-          for(var i=0;i<=roles.length;i++){
-            if(gaps[i]){
-              if(i===sel){
-                var nb=el('div','newblock'), ch=checked();
-                if(!ch.length) nb.appendChild(el('div','muted','ما حددت أي رتبة'));
-                ch.forEach(function(r){var c=el('div','chip');c.appendChild(dot(r.color));c.appendChild(el('span',null,r.name));c.appendChild(el('em',null,'جديد'));nb.appendChild(c)});
-                prev.appendChild(nb);
-              } else {
-                (function(idx){var b=el('button','gap','＋ حطها هنا');b.type='button';
-                  b.addEventListener('click',function(){sel=idx;render()});prev.appendChild(b)})(i);
-              }
-            }
-            if(i<roles.length){
-              var r=roles[i], row=el('div','prow'+(r.editable?'':' locked'));
-              row.appendChild(dot(r.color));row.appendChild(el('span',null,r.name));
-              if(!r.editable) row.appendChild(el('small',null,'🔒 أعلى من البوت'));
-              prev.appendChild(row);
-            }
-          }
-          if(sel>=0){aIn.value=gaps[sel].anchorId;mIn.value=gaps[sel].mode;where.textContent='المكان المحدد: '+gaps[sel].label}
-          else where.textContent='ما فيه مكان متاح للبوت.';
-        }
-
-        f.addEventListener('submit',function(e){
-          if(sel<0||!checked().length){e.preventDefault();alert('حدد رتبة واحدة على الأقل ومكانها.');return}
-          if(!confirm('استعادة '+checked().length+' رتبة — '+gaps[sel].label+' ؟'))e.preventDefault();
-        });
-        render();
-      });
-    })();
-    </script>
-
-    <script>
-      const boxes=[...document.querySelectorAll('input[name="roleIds"]')];
-      const count=document.getElementById('count');
-      const refresh=()=>count.textContent=boxes.filter(x=>x.checked).length+' محدد';
-      document.getElementById('selectAll').onclick=()=>{boxes.forEach(x=>x.checked=true);refresh()};
-      document.getElementById('clearAll').onclick=()=>{boxes.forEach(x=>x.checked=false);refresh()};
-      boxes.forEach(x=>x.addEventListener('change',refresh));
-      document.getElementById('deleteForm').addEventListener('submit',e=>{
-        if(!boxes.some(x=>x.checked)){e.preventDefault();alert('حدد رتبة واحدة على الأقل.')}
-      });
-      refresh();
-    </script>`, true));
+    <script src="/client.js?v=${BUILD}"></script>`, true));
 });
 
-// ============ العمليات ============
-app.post("/guild", requireAuth, (req, res) => {
-  req.session.guildId = String(req.body.guildId || "");
-  res.redirect("/");
-});
+// ============ API للواجهة (تتصل بالبوت) ============
+function requireApi(req, res, next) {
+  if (!req.session.ok) return res.status(401).json({ error: "انتهت الجلسة، حدّث الصفحة وسجّل دخول." });
+  next();
+}
+const wrap = fn => async (req, res) => {
+  try { res.json(await fn(req)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+};
 
-app.post("/backup", requireAuth, async (req, res) => {
-  try {
-    const r = await bot("/api/backup", "POST", { label: req.body.label, guildId: req.session.guildId });
-    flash(req, `تم حفظ نسخة تشمل ${r.count} رتبة.`);
-  } catch (e) { flash(req, e.message, "error"); }
-  res.redirect("/");
-});
+app.get("/api/state", requireApi, wrap(async req => {
+  const s = await bot("/api/state?guildId=" + encodeURIComponent(req.session.guildId || ""));
+  req.session.guildId = s.guildId;
+  return s;
+}));
 
-app.post("/roles/delete", requireAuth, async (req, res) => {
-  try {
-    const ids = req.body.roleIds ? [].concat(req.body.roleIds).map(String) : [];
-    const r = await bot("/api/delete", "POST", { roleIds: ids, guildId: req.session.guildId });
-    flash(req, `تم حذف ${r.deleted} رتبة.` + (r.skipped ? ` تعذر حذف ${r.skipped} (أعلى من البوت أو مُدارة).` : ""));
-  } catch (e) { flash(req, e.message, "error"); }
-  res.redirect("/");
-});
+app.post("/api/guild", requireApi, wrap(async req => {
+  req.session.guildId = String((req.body && req.body.guildId) || "");
+  return { ok: true };
+}));
 
-app.post("/restore", requireAuth, async (req, res) => {
-  try {
-    const pick = req.body.pick ? [].concat(req.body.pick).map(Number) : undefined;
-    const r = await bot("/api/restore", "POST", {
-      backupId: req.body.backupId, anchorId: req.body.anchorId, mode: req.body.mode,
-      pick, guildId: req.session.guildId
-    });
-    flash(req, `تمت استعادة ${r.restored} رتبة في المكان المحدد.` + (r.failed ? ` تعذر إنشاء ${r.failed} (غالبا صلاحيات البوت أقل من صلاحيات الرتبة).` : ""));
-  } catch (e) { flash(req, e.message, "error"); }
-  res.redirect("/");
-});
+app.post("/api/backup", requireApi, wrap(req =>
+  bot("/api/backup", "POST", { label: req.body.label, guildId: req.session.guildId })));
 
-app.post("/backup/delete", requireAuth, async (req, res) => {
-  try {
-    const r = await bot("/api/backup/delete", "POST", { backupId: req.body.backupId });
-    flash(req, r.deleted ? "تم حذف النسخة الاحتياطية." : "النسخة غير موجودة.");
-  } catch (e) { flash(req, e.message, "error"); }
-  res.redirect("/");
-});
+app.post("/api/delete", requireApi, wrap(req =>
+  bot("/api/delete", "POST", { roleIds: req.body.roleIds, guildId: req.session.guildId })));
+
+app.post("/api/restore", requireApi, wrap(req =>
+  bot("/api/restore", "POST", {
+    backupId: req.body.backupId, anchorId: req.body.anchorId, mode: req.body.mode,
+    pick: req.body.pick, guildId: req.session.guildId
+  })));
+
+app.post("/api/backup/delete", requireApi, wrap(req =>
+  bot("/api/backup/delete", "POST", { backupId: req.body.backupId })));
+
+app.get("/api/job/:id", requireApi, wrap(req =>
+  bot("/api/job/" + encodeURIComponent(req.params.id) + "?since=" + encodeURIComponent(req.query.since || 0))));
 
 app.get("/health", (req, res) => res.send("ok"));
 
