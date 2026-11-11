@@ -495,7 +495,7 @@ function renderSafe(){
   var on=S.lock.active;
   $('lockBox').classList.toggle('on',on);
   $('lockState').textContent=on?'🔴 السيرفر مقفل حالياً':'🟢 السيرفر مفتوح';
-  $('lockBtn').hidden=on;$('unlockBtn').hidden=!on;$('lockReason').hidden=on;
+  $('lockBtn').hidden=on;$('unlockBtn').hidden=!on;$('lockReason').hidden=on;$('lockClear').hidden=on;
   var ex=$('exempt');ex.textContent='';
   S.roles.forEach(function(r){
     var l=el('label','pick srch'),cb=document.createElement('input');cb.type='checkbox';cb.value=r.id;cb.checked=S.settings.exempt.indexOf(r.id)>=0;
@@ -570,7 +570,7 @@ $('efBtn').addEventListener('click',doEffective);
 $('probBtn').addEventListener('click',doProblems);
 $('lockBtn').addEventListener('click',function(){
   if(!$('dry').checked&&!confirm('🚨 قفل الطوارئ: تُخفى كل الرومات عن الجميع وينشأ روم تحذير. متأكد؟'))return;
-  runJob('🚨 قفل الطوارئ','/api/lockdown',{reason:val('lockReason')},true);
+  runJob('🚨 قفل الطوارئ','/api/lockdown',{reason:val('lockReason'),clearChannelId:val('lockClear').trim()},true);
 });
 $('unlockBtn').addEventListener('click',function(){if(confirm('فتح السيرفر وإرجاع كل الصلاحيات كما كانت؟'))runJob('فتح السيرفر','/api/unlock',{},true)});
 $('saveSet').addEventListener('click',function(){
@@ -711,6 +711,7 @@ app.get("/", requireAuth, (req, res) => {
       <p class="muted">وقت الهجوم أو الاشتباه: يخفي كل الرومات عن الجميع (حتى الرتب الأعلى من البوت) ما عدا مالك السيرفر والرتب المستثناة، وينشئ روم «سيرفر مغلق» برسالة تحذير طويلة، ويوقف الدعوات. الفتح يرجع كل شي كما كان.</p>
       <div class="alert error">⚠️ رتبة «مدير كامل» (Administrator) تتجاوز أي إخفاء، وديسكورد ما يسمح بحجبها.</div>
       <input type="text" id="lockReason" maxlength="300" placeholder="سبب القفل (اختياري)">
+      <input type="text" id="lockClear" inputmode="numeric" placeholder="آيدي شات زوال الخطر (تنرسل فيه رسالة الفتح بالمنشن)">
       <button class="btn danger" type="button" id="lockBtn">🚨 قفل السيرفر الآن</button>
       <button class="btn good" type="button" id="unlockBtn" hidden>🔓 فتح السيرفر</button>
     </section>
