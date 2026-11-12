@@ -1,5 +1,6 @@
-// Role Vault WEB v2 — الموقع (بدون توكن البوت) — يتصل بالبوت عبر API
+// Role Vault WEB v3 — الموقع (بدون توكن البوت) — يتصل بالبوت عبر API
 // متغيرات Render: SITE_PASSWORD, SESSION_SECRET, MONGODB_URI, BOT_URL, BOT_API_KEY
+// v3: تحديث فوري لكل المتصلين (SSE) + نوافذ وقوائم من تصميم الموقع بدل نوافذ الآيفون + تصميم جديد
 const express = require("express");
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
@@ -28,76 +29,165 @@ const sha = s => crypto.createHash("sha256").update(String(s)).digest();
 
 // ============ التصميم ============
 const css = `
-:root{--bg:#070b14;--panel:#0f1729;--panel2:#16213b;--line:#22305a;--text:#f1f5ff;--muted:#8c9bbf;--accent:#3b82f6;--accent2:#22d3ee;--red:#e11d48;--green:#10b981;--radius:16px}
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;color:var(--text);background:radial-gradient(900px 500px at 80% -10%,#12316b66,transparent),radial-gradient(700px 400px at 0% 0%,#0e7c8f44,transparent),var(--bg);font-family:"Tajawal",system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif}
+:root{color-scheme:dark;--bg:#050912;--panel:#0d1527;--panel2:#131e38;--panel3:#1a2849;--line:#1f2d52;--line2:#2d4070;--text:#eef3ff;--muted:#8d9cc2;--accent:#4f8cff;--accent2:#22d3ee;--red:#f43f5e;--green:#10b981;--amber:#f59e0b;--radius:18px;--hh:64px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-behavior:smooth}
+html.nosc,html.nosc body{overflow:hidden}
+body{margin:0;min-height:100vh;min-height:100dvh;color:var(--text);background:var(--bg);font-family:"Tajawal",system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom)}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(900px 520px at 85% -8%,#1b3f8f55,transparent 70%),radial-gradient(700px 420px at 0% 0%,#0e7c8f3a,transparent 70%),radial-gradient(600px 400px at 50% 110%,#4f46e51f,transparent 70%)}
 a{color:var(--accent2);text-decoration:none}
-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 4%;border-bottom:1px solid var(--line);background:#070b14d9;backdrop-filter:blur(12px);position:sticky;top:0;z-index:5}
-.brand{font-weight:900;font-size:21px}
-.brand b{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
-.wrap{max-width:1100px;margin:18px auto;padding:0 14px}
-.hero{padding:18px;border:1px solid var(--line);border-radius:22px;margin-bottom:14px;background:linear-gradient(135deg,#13234a,var(--panel) 70%)}
-.hero h1{margin:0 0 6px;font-size:clamp(21px,4vw,30px)}
+button{-webkit-appearance:none;appearance:none;touch-action:manipulation}
+[hidden]{display:none!important}
 .muted{color:var(--muted)}
+label{font-weight:700;font-size:14px;color:#c7d3f2}
+
+/* الهيدر */
+header{position:sticky;top:0;z-index:20;padding:calc(10px + env(safe-area-inset-top)) max(4%,env(safe-area-inset-right)) 10px max(4%,env(safe-area-inset-left));border-bottom:1px solid var(--line);background:#060b16d9;-webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%)}
+.hrow{display:flex;align-items:center;gap:10px;max-width:1100px;margin:0 auto}
+.hrow.r2{margin-top:9px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:20px;letter-spacing:.5px}
+.logo{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 6px 18px #22d3ee33;font-size:17px}
+.brand b{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sp{flex:1}
+.live{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:13px;font-weight:800;background:#0b2f2566;border:1px solid #10805b88;color:#6ee7b7;white-space:nowrap}
+.live i{width:8px;height:8px;border-radius:50%;background:#34d399;animation:ping 1.8s infinite}
+.live.off{background:#3b122066;border-color:#9f1d3f88;color:#fda4af}
+.live.off i{background:#fb7185;animation:none}
+@keyframes ping{0%{box-shadow:0 0 0 0 #34d39999}70%{box-shadow:0 0 0 7px #34d39900}100%{box-shadow:0 0 0 0 #34d39900}}
+.exit{font-weight:800;font-size:14px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel2);color:var(--text)}
+.sw{display:inline-flex;align-items:center;gap:8px;font-weight:800;font-size:14px;color:#fcd34d;cursor:pointer;white-space:nowrap}
+
+/* الصفحة */
+.wrap{max-width:1100px;margin:18px auto;padding:0 max(14px,env(safe-area-inset-right)) 0 max(14px,env(safe-area-inset-left))}
+.hero{padding:20px;border:1px solid var(--line2);border-radius:24px;margin-bottom:14px;background:linear-gradient(135deg,#16295a,var(--panel) 72%);box-shadow:0 18px 50px #0006}
+.hero h1{margin:0 0 4px;font-size:clamp(22px,4.4vw,32px);font-weight:900}
+.hero p{margin:0 0 12px}
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.stat{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:#0a1122aa;border:1px solid var(--line);font-size:13px}
+.stat b{font-weight:800}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px}
-.card h2{margin:0 0 10px;font-size:18px}
-.btn{border:0;border-radius:14px;padding:10px 16px;font:inherit;font-weight:800;color:#fff;cursor:pointer;background:linear-gradient(135deg,var(--accent),#2563eb);display:inline-block;box-shadow:0 6px 18px #2563eb44;transition:transform .12s,filter .12s}
+.card{background:linear-gradient(180deg,#101a31,var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:0 10px 30px #0004;scroll-margin-top:calc(var(--hh) + 70px)}
+.grid>.card{margin-bottom:0}
+.card h2{margin:0 0 10px;font-size:18px;font-weight:900}
+.card h3{font-weight:800}
+
+/* الأزرار */
+.btn{border:0;border-radius:14px;padding:11px 18px;min-height:44px;font:inherit;font-weight:800;color:#fff;cursor:pointer;background:linear-gradient(135deg,var(--accent),#2563eb);display:inline-flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 8px 20px #2563eb44;transition:transform .12s,filter .12s}
 .btn:hover{filter:brightness(1.1)}.btn:active{transform:scale(.97)}
-.btn.good{background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 6px 18px #05966944}
-.btn.danger{background:linear-gradient(135deg,#f43f5e,#be123c);box-shadow:0 6px 18px #be123c44}
-.btn.secondary{background:var(--panel2);box-shadow:none;border:1px solid var(--line)}
-.btn.sm{padding:6px 12px;font-size:13px}
-.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
-input,select{background:#0a1122;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;max-width:100%}
-input[type=text],input[type=password],select.full{width:100%;margin:6px 0 12px}
-select{max-width:100%}
+.btn.good{background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 8px 20px #05966944}
+.btn.danger{background:linear-gradient(135deg,#f43f5e,#be123c);box-shadow:0 8px 20px #be123c44}
+.btn.secondary{background:var(--panel2);box-shadow:none;border:1px solid var(--line2)}
+.btn.sm{padding:6px 13px;min-height:36px;font-size:13px;border-radius:12px}
+.btn:focus-visible,input:focus-visible,.selbtn:focus-visible,.shi:focus-visible,.tab:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+.card>.btn,.card>form>.btn{margin-top:4px}
+
+/* الحقول */
+input[type=text],input[type=password]{width:100%;min-height:46px;background:#0a1122;color:var(--text);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:6px 0 12px;font:inherit;font-size:16px;-webkit-appearance:none;appearance:none;transition:border-color .15s,box-shadow .15s}
+input[type=text]:focus,input[type=password]:focus{border-color:var(--accent);box-shadow:0 0 0 3px #4f8cff33;outline:0}
+input::placeholder{color:#62729a}
+input[type=checkbox]{-webkit-appearance:none;appearance:none;width:22px;height:22px;min-width:22px;border-radius:7px;border:2px solid var(--line2);background:#0a1122;display:inline-grid;place-content:center;cursor:pointer;margin:0;transition:.15s;flex:0 0 auto}
+input[type=checkbox]:checked{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent}
+input[type=checkbox]:checked::after{content:"";width:6px;height:11px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.sw input[type=checkbox]{width:46px;height:27px;min-width:46px;border-radius:99px;position:relative;display:block;border-color:var(--line2)}
+.sw input[type=checkbox]::after{content:"";position:absolute;top:2px;right:2px;left:auto;width:19px;height:19px;border:0;border-radius:50%;background:#8d9cc2;transform:none;transition:right .2s,background .2s}
+.sw input[type=checkbox]:checked{background:#78350f66;border-color:var(--amber)}
+.sw input[type=checkbox]:checked::after{right:21px;background:#fbbf24;border:0;width:19px;height:19px;transform:none}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0}
-.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;max-height:420px;overflow:auto;padding:10px 0}
-.role{display:flex;align-items:center;gap:9px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px;min-width:0}
-.role label{overflow-wrap:anywhere;cursor:pointer;flex:1}
+.row .sel{flex:1;min-width:180px}
+
+/* القوائم المنسدلة (من تصميم الموقع) */
+.nat{display:none!important}
+.sel{position:relative;display:inline-block;min-width:190px;max-width:100%}
+.sel.full{display:block;width:100%;margin:6px 0 12px}
+.selbtn{width:100%;display:flex;align-items:center;gap:10px;text-align:start;min-height:46px;padding:10px 14px;border-radius:14px;border:1px solid var(--line);background:#0a1122;color:var(--text);font:inherit;font-size:16px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.selbtn:hover{border-color:var(--line2)}
+.selbtn .st{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.selbtn .sc{color:var(--accent2);font-size:14px}
+.selbtn:disabled{opacity:.5;cursor:default}
+
+/* النوافذ والقوائم المنبثقة */
+.ovl{position:fixed;inset:0;z-index:100;display:flex;align-items:flex-end;justify-content:center;background:#02050cb8;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;transition:opacity .18s}
+.ovl.in{opacity:1}
+.ovl.mid{align-items:center;padding:20px}
+.sheet{width:100%;max-width:520px;max-height:78vh;max-height:78dvh;display:flex;flex-direction:column;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-bottom:0;border-radius:26px 26px 0 0;transform:translateY(44px);transition:transform .24s cubic-bezier(.2,.9,.3,1);padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -20px 60px #000a}
+.ovl.in .sheet{transform:none}
+.shh{display:flex;align-items:center;gap:10px;padding:16px 18px 8px}
+.shh b{flex:1;font-size:17px;font-weight:900}
+.shx{border:0;background:var(--panel3);color:var(--text);width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer}
+input.shs{width:calc(100% - 28px);margin:6px 14px 8px}
+.shl{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 10px 14px}
+.shi{display:flex;align-items:center;gap:10px;width:100%;text-align:start;padding:13px 14px;border:0;background:transparent;color:var(--text);font:inherit;font-size:16px;border-radius:12px;cursor:pointer;overflow-wrap:anywhere}
+.shi:hover{background:var(--panel3)}
+.shi.on{background:#1d3566;font-weight:800}
+.shi .ck{margin-inline-start:auto;color:var(--accent2)}
+.dlg{width:min(100%,400px);text-align:center;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:26px;padding:24px 20px 18px;box-shadow:0 30px 80px #000c;transform:scale(.93) translateY(10px);transition:transform .22s cubic-bezier(.2,.9,.3,1)}
+.ovl.in .dlg{transform:none}
+.dlg.danger{border-color:#9f1d3f}
+.dic{font-size:38px;line-height:1;margin-bottom:8px}
+.dlg h3{margin:0 0 6px;font-size:19px;font-weight:900}
+.dlg p{margin:0 0 16px;color:#c7d3f2;white-space:pre-line;overflow-wrap:anywhere}
+.dbt{display:flex;gap:10px}
+.dbt .btn{flex:1}
+@media(min-width:700px){.ovl:not(.mid){align-items:center}.sheet{border-radius:24px;border-bottom:1px solid var(--line2);transform:scale(.96)}}
+
+/* إشعارات */
+#toasts{position:fixed;inset-inline:0;bottom:calc(16px + env(safe-area-inset-bottom));z-index:120;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 12px}
+.toast{max-width:min(94vw,460px);padding:11px 16px;border-radius:14px;background:#111c36f5;border:1px solid var(--line2);box-shadow:0 14px 40px #000a;font-weight:700;font-size:14px;opacity:0;transform:translateY(14px);transition:opacity .25s,transform .25s}
+.toast.in{opacity:1;transform:none}
+.toast.ok{border-color:#10805b}.toast.warn{border-color:#92661a}.toast.error{border-color:#9f1d3f}
+
+/* الرتب والنسخ */
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;max-height:420px;overflow:auto;padding:10px 0;-webkit-overflow-scrolling:touch}
+.role{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px;min-width:0;transition:border-color .15s}
+.role:hover{border-color:var(--line2)}
+.role label{overflow-wrap:anywhere;cursor:pointer;flex:1;font-weight:600;color:var(--text)}
 .role small{color:var(--muted)}
-.alert{padding:12px 14px;border-radius:12px;margin:10px 0;background:#18264a;border:1px solid var(--line)}
+.alert{padding:12px 14px;border-radius:14px;margin:10px 0;background:#18264a;border:1px solid var(--line);overflow-wrap:anywhere}
 .alert.error{background:#3b1220;border-color:#9f1d3f}
 .alert.ok{background:#0b2f25;border-color:#10805b}
+.alert.warn{background:#3a2a0b;border-color:#92661a}
 .backup{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:14px 0}
 .backup:last-child{border-bottom:0}
 .login{max-width:400px;margin:12vh auto}
+.login .lk{font-size:40px;text-align:center;margin-bottom:4px}
+.login h2{text-align:center}
 .footer{padding:20px;text-align:center;color:var(--muted);font-size:12px}
 .restore{flex-basis:100%}
-.restore>summary{list-style:none;cursor:pointer;display:inline-block}
+.restore>summary{list-style:none;cursor:pointer;display:inline-flex}
 .restore>summary::-webkit-details-marker{display:none}
-.rpanel{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:14px;background:#0a1122}
+.rpanel{margin-top:14px;border:1px solid var(--line);border-radius:16px;padding:14px;background:#0a1122}
 .rcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-bottom:12px}
 .rcols h3{margin:0 0 8px;font-size:15px}
-.picklist,.preview{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:8px;background:var(--panel)}
-.pick{display:flex;align-items:center;gap:8px;padding:6px 4px;overflow-wrap:anywhere}
+.picklist,.preview{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:14px;padding:8px;background:var(--panel);-webkit-overflow-scrolling:touch}
+.pick{display:flex;align-items:center;gap:10px;padding:7px 4px;overflow-wrap:anywhere;font-weight:600;color:var(--text)}
 .prow{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);margin:3px 0;overflow-wrap:anywhere}
 .prow.locked{opacity:.45}
 .prow small{margin-inline-start:auto;color:var(--muted)}
-.gap{display:block;width:100%;border:1px dashed var(--line);background:transparent;color:var(--muted);border-radius:8px;padding:3px;font:inherit;font-size:12px;cursor:pointer;margin:2px 0;opacity:.55}
+.gap{display:block;width:100%;border:1px dashed var(--line2);background:transparent;color:var(--muted);border-radius:8px;padding:5px;font:inherit;font-size:12px;cursor:pointer;margin:2px 0;opacity:.6}
 .gap:hover{opacity:1;border-color:var(--accent2);color:var(--accent2)}
 .newblock{border:2px solid var(--green);background:#0b2f25;border-radius:12px;padding:6px;margin:4px 0}
 .chip{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:#10805b33;margin:3px 0;overflow-wrap:anywhere}
 .chip em{margin-inline-start:auto;font-style:normal;font-size:11px;background:var(--green);color:#fff;border-radius:6px;padding:1px 6px}
 .where{margin:8px 0 0;font-size:14px}
-[hidden]{display:none!important}
-.log{max-height:300px;overflow:auto;background:#0a1122;border:1px solid var(--line);border-radius:12px;padding:10px;margin:10px 0;font-size:14px}
+.log{max-height:300px;overflow:auto;background:#0a1122;border:1px solid var(--line);border-radius:14px;padding:10px;margin:10px 0;font-size:14px;-webkit-overflow-scrolling:touch}
 .ln{padding:3px 0;overflow-wrap:anywhere}
 .ln.ok{color:#6ee7b7}.ln.error{color:#fda4af}.ln.warn{color:#fcd34d}.ln.info{color:var(--muted)}
-.busy .btn:not(#pclose){pointer-events:none;opacity:.55}
-/* تبويبات */
-.tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 12px;position:sticky;top:58px;z-index:4;background:linear-gradient(var(--bg) 80%,transparent)}
-.tab{flex:0 0 auto;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:9px 16px;border-radius:999px;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
-.tab.on{background:linear-gradient(135deg,var(--accent),#2563eb);border-color:transparent}
-.tab.red.on{background:linear-gradient(135deg,#f43f5e,#be123c)}
-.top{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.top input{flex:1;min-width:150px;margin:0}
-.chk{display:flex;align-items:center;gap:6px;font-weight:700;color:#fcd34d;white-space:nowrap}
+.busy .btn:not(#pclose):not(.dbtn){pointer-events:none;opacity:.55}
+
+/* التبويبات */
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:6px 0 12px;position:sticky;top:var(--hh);z-index:4;background:linear-gradient(var(--bg) 78%,transparent);scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:10px 17px;min-height:42px;border-radius:999px;font:inherit;font-weight:800;cursor:pointer;white-space:nowrap;transition:.15s}
+.tab:hover{border-color:var(--line2)}
+.tab.on{background:linear-gradient(135deg,var(--accent),#2563eb);border-color:transparent;box-shadow:0 8px 20px #2563eb44}
+.tab.red.on{background:linear-gradient(135deg,#f43f5e,#be123c);box-shadow:0 8px 20px #be123c44}
+.top{flex:1;min-width:0}
+.top input{margin:0}
+
 /* الصلاحيات */
 .gh{margin:16px 0 6px;padding-bottom:6px;border-bottom:1px solid var(--line);color:var(--accent2);font-size:16px}
-.prm{display:flex;gap:12px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);margin:6px 0}
-.prm input{width:22px;height:22px;margin-top:4px;flex:0 0 auto}
+.prm{display:flex;gap:12px;align-items:flex-start;padding:11px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);margin:6px 0}
+.prm input{margin-top:3px}
 .prm.dng{border-color:#9f1d3f;background:#2a1020}
 .pt b{font-size:16px}
 .pt small.en{display:block;color:var(--muted);direction:ltr;text-align:right;font-size:12px}
@@ -105,42 +195,56 @@ select{max-width:100%}
 .wb{display:inline-block;margin-inline-start:8px;background:var(--red);color:#fff;border-radius:8px;padding:1px 8px;font-size:12px;font-weight:800}
 .res{display:flex;gap:8px;padding:7px 4px;border-bottom:1px solid var(--line)}
 .res .w{flex:1}.res small{display:block;color:var(--muted)}
-.pr{padding:9px 12px;border-radius:10px;margin:5px 0;border:1px solid var(--line)}
+.pr{padding:10px 13px;border-radius:12px;margin:5px 0;border:1px solid var(--line)}
 .pr.danger{background:#3b1220;border-color:#9f1d3f}.pr.warn{background:#3a2a0b;border-color:#92661a}.pr.info{background:#18264a}.pr.ok{background:#0b2f25;border-color:#10805b}
-.ch{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);margin:3px 0;overflow-wrap:anywhere}
+.ch{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);margin:3px 0;overflow-wrap:anywhere}
 .ch.sub{margin-inline-start:22px}
 .ch.cat{background:#1b2a52;font-weight:800}
-.dr{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);margin:3px 0;user-select:none;-webkit-user-select:none}
+.dr{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);margin:3px 0;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .dr.sub{margin-inline-start:24px}.dr.cat{background:#1b2a52;font-weight:800}
 .dr.drag{opacity:.55;border-color:var(--accent2)}
 .hd{cursor:grab;touch-action:none;padding:4px 10px;font-size:20px;color:var(--accent2)}
-.lockbox{border:2px solid var(--red);background:#2a0d18}
+.lockbox{border:2px solid var(--red);background:linear-gradient(180deg,#2a0d18,#1a0a14)}
 .lockbox.on{animation:pulse 1.6s infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 6px #e11d4833}}
-.hist{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line)}
+.hist{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)}
+.hist:last-child{border-bottom:0}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+@media(max-width:520px){.card{padding:15px}.hero{padding:16px}.btn{padding:11px 15px}}
 `;
 
 const layout = (title, body, loggedIn) => `<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050912">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>${css}</style>
 </head>
 <body>
 <header>
-  <div class="brand">ROLE <b>VAULT</b></div>
-  ${loggedIn ? `<div class="top" style="flex:1;max-width:520px">
-    <input type="text" id="q" placeholder="🔍 بحث سريع عن رتبة أو روم…">
-    <label class="chk"><input type="checkbox" id="dry"> وضع المعاينة</label>
-    <a href="/logout">خروج</a></div>` : ""}
+  <div class="hrow">
+    <div class="brand"><span class="logo">🛡️</span><span>ROLE <b>VAULT</b></span></div>
+    <div class="sp"></div>
+    ${loggedIn ? `<span class="live off" id="live" title="التحديث الفوري"><i></i><span id="liveTx">جاري الاتصال…</span></span>
+    <a class="exit" href="/logout">خروج</a>` : ""}
+  </div>
+  ${loggedIn ? `<div class="hrow r2">
+    <div class="top"><input type="text" id="q" placeholder="🔍 بحث سريع عن رتبة أو روم…" autocomplete="off" enterkeyhint="search"></div>
+    <label class="sw"><input type="checkbox" id="dry"><span>معاينة</span></label>
+  </div>` : ""}
 </header>
 <main class="wrap">${body}</main>
 <div class="footer">لا تشارك رابط لوحة التحكم أو كلمة السر</div>
+<div id="toasts" aria-live="polite"></div>
 </body>
 </html>`;
 
@@ -171,8 +275,9 @@ const locked = ip => { const a = attempts.get(ip); return a && a.until > Date.no
 
 const loginPage = (err = "") => layout("دخول", `
   <section class="card login">
+    <div class="lk">🔐</div>
     <h2>الدخول للوحة</h2>
-    <p class="muted">اكتب كلمة السر للمتابعة.</p>
+    <p class="muted" style="text-align:center">اكتب كلمة السر للمتابعة.</p>
     ${err ? `<div class="alert error">${esc(err)}</div>` : ""}
     <form method="post" action="/login">
       <input type="password" name="password" placeholder="كلمة السر" autocomplete="current-password" autofocus required>
@@ -199,23 +304,114 @@ app.get("/logout", (req, res) => req.session.destroy(() => res.redirect("/login"
 // ============ كود الواجهة ============
 const BUILD = Date.now();
 const clientJs = String.raw`(function(){
-var S=null,M=null,busy=false,chosen={},chCh={};
+var S=null,M=null,busy=false,fbusy=null,chosen={},chCh={},sig={},loading=false,again=false,loadP=null;
+var ordDirty=false,setDirty=false,permForce=false,bkPending=false,wasDown=false,es=null,curTab='roles',ct=null,lastD=null;
+var CID=Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+var TABS=['roles','perms','chans','check','safe'];
 var DRY_OK={'/api/delete':1,'/api/restore':1,'/api/role-perms':1,'/api/copy-role':1,'/api/copy-channel':1,'/api/bulk':1,'/api/template':1,'/api/lockdown':1,'/api/reorder':1};
 function $(i){return document.getElementById(i)}
 function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
 function dot(c){var s=el('span',null,'●');s.style.color=(c&&c!=='#000000')?c:'#8c9bbf';return s}
-function api(path,method,body){
-  return fetch(path,{method:method||'GET',credentials:'same-origin',headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined})
-  .then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok||j.error)throw new Error(j.error||('خطأ '+r.status));return j;});});
+function h(o){return JSON.stringify(o)}
+function val(id){return $(id).value}
+function icon(t){return t===4?'📁':(t===2||t===13)?'🔊':'#'}
+function api(path,method,body,title){
+  var hd={'content-type':'application/json','x-cid':CID};if(title)hd['x-job-title']=encodeURIComponent(title);
+  return fetch(path,{method:method||'GET',credentials:'same-origin',headers:hd,body:body?JSON.stringify(body):undefined})
+  .then(function(r){if(r.status===401){setTimeout(function(){location.href='/login'},600)}
+    return r.json().catch(function(){return {}}).then(function(j){if(!r.ok||j.error)throw new Error(j.error||('خطأ '+r.status));return j;});});
 }
 function showMsg(t,type){var m=$('msg');m.textContent='';if(t)m.appendChild(el('div','alert '+(type||'error'),t))}
-function icon(t){return t===4?'📁':(t===2||t===13)?'🔊':'#'}
-function val(id){return $(id).value}
+
+/* ===== إشعارات صغيرة ===== */
+function toast(msg,type,ms){
+  var box=$('toasts'),t=el('div','toast '+(type||'info'),msg);box.appendChild(t);
+  requestAnimationFrame(function(){t.classList.add('in')});
+  setTimeout(function(){t.classList.remove('in');setTimeout(function(){t.remove()},300)},ms||3200);
+  while(box.children.length>3)box.firstChild.remove();
+}
+function notify(msg){toast(msg,'warn')}
+
+/* ===== نوافذ الموقع (بدل نوافذ الآيفون) ===== */
+var lk=0;
+function lock(){if(!lk++)document.documentElement.classList.add('nosc')}
+function unlock(){if(lk>0&&!--lk)document.documentElement.classList.remove('nosc')}
+function dialog(o){
+  return new Promise(function(resolve){
+    var prev=document.activeElement,done=false;
+    var ov=el('div','ovl mid'),d=el('div','dlg'+(o.danger?' danger':''));
+    d.setAttribute('role','alertdialog');d.setAttribute('aria-modal','true');
+    d.appendChild(el('div','dic',o.icon||(o.danger?'⚠️':'💬')));
+    d.appendChild(el('h3',null,o.title||'تنبيه'));
+    if(o.msg)d.appendChild(el('p',null,o.msg));
+    var row=el('div','dbt'),ok=el('button','btn dbtn'+(o.danger?' danger':' good'),o.ok||'حسناً'),no=null;ok.type='button';
+    if(o.cancel){no=el('button','btn secondary dbtn',o.cancel);no.type='button';row.appendChild(no)}
+    row.appendChild(ok);d.appendChild(row);ov.appendChild(d);document.body.appendChild(ov);lock();
+    function close(v){
+      if(done)return;done=true;document.removeEventListener('keydown',key,true);ov.classList.remove('in');
+      setTimeout(function(){ov.remove();unlock();try{if(prev&&prev.focus)prev.focus()}catch(e){}},180);resolve(v);
+    }
+    function key(e){if(e.key==='Escape'){e.stopPropagation();close(false)}}
+    ok.addEventListener('click',function(){close(true)});
+    if(no)no.addEventListener('click',function(){close(false)});
+    ov.addEventListener('click',function(e){if(e.target===ov&&o.cancel)close(false)});
+    document.addEventListener('keydown',key,true);
+    requestAnimationFrame(function(){ov.classList.add('in');(o.danger&&no?no:ok).focus()});
+  });
+}
+function ask(msg,o){o=o||{};return dialog({title:o.title||'تأكيد',msg:msg,ok:o.ok||'تأكيد',cancel:'إلغاء',danger:!!o.danger,icon:o.icon})}
+function maybe(msg,o){return $('dry').checked?Promise.resolve(true):ask(msg,o)}
+
+/* ===== قوائم منسدلة من تصميم الموقع ===== */
+function refreshSel(s){
+  if(!s._tx)return;var o=s.options[s.selectedIndex];
+  s._tx.textContent=o?o.textContent:'— لا يوجد —';s._btn.disabled=!s.options.length;
+}
+function enhance(s){
+  if(s._tx)return;
+  var w=el('div','sel'+(s.classList.contains('full')?' full':''));
+  s.parentNode.insertBefore(w,s);w.appendChild(s);s.classList.add('nat');s.tabIndex=-1;s.setAttribute('aria-hidden','true');
+  var b=el('button','selbtn');b.type='button';b.setAttribute('aria-haspopup','listbox');
+  var tx=el('span','st');b.appendChild(tx);b.appendChild(el('span','sc','▼'));w.appendChild(b);
+  s._btn=b;s._tx=tx;b.addEventListener('click',function(){openSheet(s)});refreshSel(s);
+}
+function openSheet(s){
+  var title=s.getAttribute('data-t')||'اختر';
+  var ov=el('div','ovl'),sh=el('div','sheet'),hd=el('div','shh'),done=false;
+  sh.setAttribute('role','dialog');sh.setAttribute('aria-modal','true');sh.setAttribute('aria-label',title);
+  hd.appendChild(el('b',null,title));
+  var x=el('button','shx','✕');x.type='button';x.setAttribute('aria-label','إغلاق');hd.appendChild(x);sh.appendChild(hd);
+  var opts=[].slice.call(s.options),inp=null,items=[];
+  if(opts.length>7){
+    inp=document.createElement('input');inp.type='text';inp.className='shs';inp.placeholder='🔍 ابحث…';inp.setAttribute('autocomplete','off');sh.appendChild(inp);
+  }
+  var list=el('div','shl');list.setAttribute('role','listbox');sh.appendChild(list);
+  function close(){
+    if(done)return;done=true;document.removeEventListener('keydown',key,true);ov.classList.remove('in');
+    setTimeout(function(){ov.remove();unlock();try{s._btn.focus()}catch(e){}},200);
+  }
+  function key(e){if(e.key==='Escape'){e.stopPropagation();close()}}
+  opts.forEach(function(o){
+    var on=o.value===s.value,b=el('button','shi'+(on?' on':''));b.type='button';b.setAttribute('role','option');
+    b.appendChild(el('span',null,o.textContent));if(on)b.appendChild(el('span','ck','✓'));
+    b.addEventListener('click',function(){var chg=s.value!==o.value;s.value=o.value;refreshSel(s);close();if(chg)s.dispatchEvent(new Event('change',{bubbles:true}))});
+    list.appendChild(b);items.push({b:b,t:o.textContent.toLowerCase(),on:on});
+  });
+  if(!opts.length)list.appendChild(el('p','muted','ما فيه خيارات.'));
+  if(inp)inp.addEventListener('input',function(){var q=inp.value.trim().toLowerCase();items.forEach(function(i){i.b.hidden=!!q&&i.t.indexOf(q)<0})});
+  x.addEventListener('click',close);ov.addEventListener('click',function(e){if(e.target===ov)close()});
+  ov.appendChild(sh);document.body.appendChild(ov);lock();document.addEventListener('keydown',key,true);
+  requestAnimationFrame(function(){
+    ov.classList.add('in');
+    var cur=items.filter(function(i){return i.on})[0];if(cur)cur.b.scrollIntoView({block:'center'});
+    if(inp&&window.matchMedia&&matchMedia('(pointer:fine)').matches)inp.focus();
+  });
+}
 
 /* ===== التقدم المباشر ===== */
 var ICON={ok:'✅',error:'❌',warn:'⚠️',info:'ℹ️'};
 function logLine(type,msg){var l=$('plog');l.appendChild(el('div','ln '+type,(ICON[type]||'•')+' '+msg));l.scrollTop=l.scrollHeight}
-function openProgress(title){var p=$('progress');p.hidden=false;$('ptitle').textContent=title;$('plog').textContent='';$('pclose').hidden=true;p.scrollIntoView({behavior:'smooth',block:'start'})}
+function openProgress(title,quiet){var p=$('progress');p.hidden=false;$('ptitle').textContent=title;$('plog').textContent='';$('pclose').hidden=true;if(!quiet)p.scrollIntoView({behavior:'smooth',block:'start'})}
 function poll(id){
   var since=0,fails=0;
   return new Promise(function(resolve){
@@ -234,17 +430,27 @@ function poll(id){
   });
 }
 function runJob(title,path,body,free){
-  if(busy&&!free){alert('فيه عملية شغالة الحين، انتظر تخلص.');return}
+  if((busy||fbusy)&&!free){notify('فيه عملية شغالة الحين، انتظر تخلص.');return}
   body=body||{};if(DRY_OK[path]&&$('dry').checked)body.dry=true;
-  busy=true;document.body.classList.add('busy');openProgress(title+(body.dry?' (معاينة)':''));
-  api(path,'POST',body).then(function(j){return poll(j.jobId)})
+  var full=title+(body.dry?' (معاينة)':'');
+  busy=true;document.body.classList.add('busy');openProgress(full);
+  api(path,'POST',body,full).then(function(j){return poll(j.jobId)})
   .catch(function(e){logLine('error',e.message)})
   .then(function(){busy=false;document.body.classList.remove('busy');$('pclose').hidden=false;return load()});
+}
+/* عملية بدأها جهاز ثاني: نتابعها مباشرة */
+function attach(d){
+  if(!d||!d.jobId||busy||fbusy)return;
+  fbusy=d.jobId;document.body.classList.add('busy');
+  openProgress((d.title||'عملية')+' — من جهاز ثاني',true);toast('⏳ عملية شغالة من جهاز ثاني: '+(d.title||''),'info',3600);
+  poll(d.jobId).then(function(){fbusy=null;document.body.classList.remove('busy');$('pclose').hidden=false;return load()});
 }
 
 /* ===== التبويبات + البحث ===== */
 function tab(name){
-  ['roles','perms','chans','check','safe'].forEach(function(t){$('t-'+t).hidden=(t!==name);$('b-'+t).classList.toggle('on',t===name)});
+  curTab=name;
+  TABS.forEach(function(t){$('t-'+t).hidden=(t!==name);$('b-'+t).classList.toggle('on',t===name)});
+  try{history.replaceState(null,'','#'+name)}catch(e){}
   if(name==='safe')loadHistory();
 }
 function applyQ(){
@@ -259,7 +465,7 @@ function removeRoleRow(id){
   delete chosen[id];if(S)S.roles=S.roles.filter(function(r){return r.id!==id});updCount();
 }
 function renderRoles(){
-  var box=$('roles');box.textContent='';var ids={};
+  var box=$('roles'),st=box.scrollTop;box.textContent='';var ids={};
   S.roles.forEach(function(r){
     ids[r.id]=1;
     var row=el('div','role srch');row.dataset.id=r.id;
@@ -270,11 +476,18 @@ function renderRoles(){
     box.appendChild(row);
   });
   for(var k in chosen)if(!ids[k])delete chosen[k];
-  updCount();
+  box.scrollTop=st;updCount();
 }
 function renderGuilds(){
   var s=$('guildSel');s.textContent='';
   S.guilds.forEach(function(g){var o=el('option',null,g.name);o.value=g.id;if(g.id===S.guildId)o.selected=true;s.appendChild(o)});
+  s.value=S.guildId;refreshSel(s);
+}
+function renderStats(){
+  var b=$('stats');b.textContent='';
+  [['🏷️',S.roles.length+' رتبة'],['💬',S.channels.length+' روم وتصنيف'],['💾',S.backups.length+' نسخة'],[S.lock.active?'🔴':'🟢',S.lock.active?'السيرفر مقفل':'السيرفر مفتوح']].forEach(function(x){
+    var c=el('span','stat');c.appendChild(el('span',null,x[0]));c.appendChild(el('b',null,x[1]));b.appendChild(c);
+  });
 }
 
 /* ===== النسخ + الاستعادة ===== */
@@ -291,7 +504,7 @@ function gapsFor(roles){
 function restorePanel(b){
   var roles=S.roles,G=gapsFor(roles),gaps=G.gaps,sel=G.order.length?G.order[0]:-1;
   var det=el('details','restore');
-  det.appendChild(el('summary','btn good','استعادة… (اختيار الأجزاء والمكان)'));
+  det.appendChild(el('summary','btn good','♻️ استعادة… (اختيار الأجزاء والمكان)'));
   var panel=el('div','rpanel'),cols=el('div','rcols');
   var c1=el('div');c1.appendChild(el('h3',null,'الرتب (شيل علامة اللي ما تبيه)'));
   var pickBox=el('div','picklist');c1.appendChild(pickBox);
@@ -338,23 +551,27 @@ function restorePanel(b){
   }
   go.addEventListener('click',function(){
     var ch=checked(),withCh=!!(wc&&wc.checked),pc=cboxes.filter(function(x){return x.cb.checked}).map(function(x){return x.c.i});
-    if(sel<0||(!ch.length&&!(withCh&&pc.length))){alert('حدد شي من النسخة ومكانه.');return}
-    if(!$('dry').checked&&!confirm('استعادة '+ch.length+' رتبة'+(withCh?' و'+pc.length+' روم':'')+' — '+gaps[sel].label+' ؟'))return;
-    runJob('الاستعادة','/api/restore',{backupId:b.id,anchorId:gaps[sel].anchorId,mode:gaps[sel].mode,pick:ch.map(function(r){return r.i}),withChannels:withCh,pickCh:pc});
+    if(sel<0||(!ch.length&&!(withCh&&pc.length))){notify('حدد شي من النسخة ومكانه.');return}
+    maybe('استعادة '+ch.length+' رتبة'+(withCh?' و'+pc.length+' روم':'')+'\n'+gaps[sel].label,{title:'تأكيد الاستعادة',ok:'استعِد الآن',icon:'♻️'}).then(function(ok){
+      if(ok)runJob('الاستعادة','/api/restore',{backupId:b.id,anchorId:gaps[sel].anchorId,mode:gaps[sel].mode,pick:ch.map(function(r){return r.i}),withChannels:withCh,pickCh:pc});
+    });
   });
   render();return det;
 }
 function renderBackups(){
+  if(document.querySelector('#backups details.restore[open]')){bkPending=true;return}
+  bkPending=false;
   var box=$('backups');box.textContent='';
   if(!S.backups.length){box.appendChild(el('p','muted','ما فيه نسخ محفوظة. اضغط «نسخ الآن».'));return}
   S.backups.forEach(function(b){
     var row=el('div','backup');
     var info=el('div');info.appendChild(el('b',null,(b.auto?'🕒 ':'')+(b.label||'نسخة')));
     info.appendChild(el('div','muted',new Date(b.createdAt).toLocaleString('ar-SA')+' · '+b.count+' رتبة'+(b.chans.length?' · '+b.chans.length+' روم':'')+(b.fromGuild?' · من: '+b.fromGuild:'')));
-    var del=el('button','btn secondary','حذف النسخة');del.type='button';
+    var del=el('button','btn secondary','🗑️ حذف النسخة');del.type='button';
     del.addEventListener('click',function(){
-      if(!confirm('حذف النسخة الاحتياطية فقط؟'))return;
-      api('/api/backup/delete','POST',{backupId:b.id}).then(function(){return load()}).catch(function(e){showMsg(e.message)});
+      ask('حذف النسخة الاحتياطية فقط؟ (الرتب والرومات في السيرفر ما تتأثر)',{title:'حذف النسخة',ok:'حذف',danger:true,icon:'🗑️'}).then(function(ok){
+        if(ok)api('/api/backup/delete','POST',{backupId:b.id},'حذف نسخة احتياطية').then(function(){toast('تم حذف النسخة','ok');return load()}).catch(function(e){showMsg(e.message)});
+      });
     });
     row.appendChild(info);row.appendChild(del);row.appendChild(restorePanel(b));box.appendChild(row);
   });
@@ -365,7 +582,7 @@ function fillSel(id,arr,v,l,first){
   var s=$(id);if(!s)return;var old=s.value;s.textContent='';
   if(first){var o=el('option',null,first[1]);o.value=first[0];s.appendChild(o)}
   arr.forEach(function(x){var o=el('option',null,l(x));o.value=v(x);s.appendChild(o)});
-  if(old)s.value=old;
+  if(old)s.value=old;refreshSel(s);
 }
 function fillAll(){
   var rv=function(r){return r.id},rl=function(r){return r.name},cv=function(c){return c.id},cl=function(c){return icon(c.type)+' '+c.name};
@@ -376,10 +593,18 @@ function fillAll(){
   fillSel('tpCat',S.channels.filter(function(c){return c.type===4}),cv,cl,['','بدون تصنيف']);
 }
 
-/* ===== الصلاحيات (عربي واضح + إنجليزي ملاحظة) ===== */
+/* ===== الصلاحيات ===== */
 var ZERO=BigInt(0);
-function renderPerm(){
-  var box=$('permBox');box.textContent='';if(!M||!S)return;
+function permDirty(){
+  var b=$('permBox').querySelectorAll('input[type=checkbox]');
+  for(var i=0;i<b.length;i++)if((b[i].checked?'1':'0')!==b[i].dataset.o)return true;
+  return false;
+}
+function renderPerm(force){
+  if(!M||!S)return;
+  if(!force&&!permForce&&permDirty()){$('permNote').hidden=false;return}
+  permForce=false;$('permNote').hidden=true;
+  var box=$('permBox');box.textContent='';
   var r=S.roles.filter(function(x){return x.id===val('pr')})[0];if(!r)return;
   var cur=BigInt(r.perms);
   ['m','c','v','a'].forEach(function(g){
@@ -387,9 +612,9 @@ function renderPerm(){
     M.perms.filter(function(p){return p.g===g}).forEach(function(p){
       var row=el('div','prm srch'+(p.danger?' dng':'')),cb=document.createElement('input');
       cb.type='checkbox';cb.dataset.k=p.k;cb.dataset.d=p.danger?'1':'';cb.checked=(cur&BigInt(p.bit))!==ZERO;cb.dataset.o=cb.checked?'1':'0';
-      var t=el('div','pt'),h=el('b',null,p.ar);
-      if(p.danger)h.appendChild(el('span','wb','⚠️ خطيرة'));
-      t.appendChild(h);t.appendChild(el('small','en',p.en));t.appendChild(el('div','muted',p.d));
+      var t=el('div','pt'),hh=el('b',null,p.ar);
+      if(p.danger)hh.appendChild(el('span','wb','⚠️ خطيرة'));
+      t.appendChild(hh);t.appendChild(el('small','en',p.en));t.appendChild(el('div','muted',p.d));
       row.appendChild(cb);row.appendChild(t);box.appendChild(row);
     });
   });
@@ -397,9 +622,10 @@ function renderPerm(){
 function savePerms(){
   var set={},dng=[],boxes=$('permBox').querySelectorAll('input[type=checkbox]');
   for(var i=0;i<boxes.length;i++){var b=boxes[i];if((b.checked?'1':'0')!==b.dataset.o){set[b.dataset.k]=b.checked;if(b.checked&&b.dataset.d)dng.push(b.dataset.k)}}
-  if(!Object.keys(set).length){alert('ما غيّرت شي.');return}
-  if(dng.length&&!$('dry').checked&&!confirm('⚠️ تحذير: تعطي صلاحيات خطيرة ('+dng.join('، ')+'). متأكد؟'))return;
-  runJob('تعديل الصلاحيات','/api/role-perms',{roleId:val('pr'),set:set});
+  if(!Object.keys(set).length){notify('ما غيّرت شي.');return}
+  function go(){permForce=true;runJob('تعديل الصلاحيات','/api/role-perms',{roleId:val('pr'),set:set})}
+  if(dng.length&&!$('dry').checked)ask('أنت على وشك إعطاء صلاحيات خطيرة:\n'+dng.map(function(k){return '• '+permName(k).ar}).join('\n')+'\n\nمتأكد؟',{title:'صلاحيات خطيرة',ok:'نعم، طبّق',danger:true,icon:'⚠️'}).then(function(ok){if(ok)go()});
+  else go();
 }
 function permName(k){var p=M.perms.filter(function(x){return x.k===k})[0];return p?p:{ar:k,en:''}}
 
@@ -409,11 +635,13 @@ function renderChans(){
   S.channels.forEach(function(c){
     var row=el('div','ch srch'+(c.type===4?' cat':(c.parentId?' sub':'')));
     var cb=document.createElement('input');cb.type='checkbox';cb.checked=!!chCh[c.id];
-    cb.addEventListener('change',function(){chCh[c.id]=cb.checked;var n=0;for(var k in chCh)if(chCh[k])n++;$('chCount').textContent=n+' محدد'});
+    cb.addEventListener('change',function(){chCh[c.id]=cb.checked;chCnt()});
     row.appendChild(cb);row.appendChild(el('span',null,icon(c.type)+' '+c.name));box.appendChild(row);
   });
-  fillSel('bkP',M.perms,function(p){return p.k},function(p){return p.ar+' — '+p.en});
+  chCnt();
+  if(!sig.bkP){fillSel('bkP',M.perms,function(p){return p.k},function(p){return p.ar+' — '+p.en});sig.bkP=1}
 }
+function chCnt(){var n=0;for(var k in chCh)if(chCh[k])n++;$('chCount').textContent=n+' محدد'}
 
 /* ===== ترتيب الرومات بالسحب والإفلات (يشتغل بالجوال) ===== */
 function norm(){
@@ -424,14 +652,16 @@ function norm(){
     else{r.classList.remove('sub');r.dataset.p=''}}
 }
 function grp(r){var g=[r];if(r.dataset.t==='4'){var n=r.nextSibling;while(n&&n.classList.contains('sub')){g.push(n);n=n.nextSibling}}return g}
-function renderOrder(){
+function renderOrder(force){
+  if(!force&&ordDirty){$('ordNote').hidden=false;return}
+  ordDirty=false;$('ordNote').hidden=true;
   var box=$('ordList');box.textContent='';
   S.channels.forEach(function(c){
     var row=el('div','dr srch'+(c.type===4?' cat':''));row.dataset.id=c.id;row.dataset.t=String(c.type);row.dataset.p=c.parentId||'';
     if(c.parentId)row.classList.add('sub');
-    var h=el('span','hd','☰');row.appendChild(h);row.appendChild(el('span',null,icon(c.type)+' '+c.name));
-    h.addEventListener('pointerdown',function(ev){
-      ev.preventDefault();h.setPointerCapture(ev.pointerId);
+    var hd=el('span','hd','☰');row.appendChild(hd);row.appendChild(el('span',null,icon(c.type)+' '+c.name));
+    hd.addEventListener('pointerdown',function(ev){
+      ev.preventDefault();hd.setPointerCapture(ev.pointerId);
       var items=grp(row);items.forEach(function(x){x.classList.add('drag')});
       function mv(e){
         var t=document.elementFromPoint(e.clientX,e.clientY);t=t&&t.closest?t.closest('.dr'):null;
@@ -442,10 +672,10 @@ function renderOrder(){
         if(row.dataset.t==='4'){var hg=grp(head);ref=after?hg[hg.length-1].nextSibling:head}
         else ref=after?t.nextSibling:t;
         items.forEach(function(x){box.insertBefore(x,ref)});
-        norm();
+        norm();ordDirty=true;
       }
-      function up(){h.removeEventListener('pointermove',mv);h.removeEventListener('pointerup',up);h.removeEventListener('pointercancel',up);items.forEach(function(x){x.classList.remove('drag')})}
-      h.addEventListener('pointermove',mv);h.addEventListener('pointerup',up);h.addEventListener('pointercancel',up);
+      function up(){hd.removeEventListener('pointermove',mv);hd.removeEventListener('pointerup',up);hd.removeEventListener('pointercancel',up);items.forEach(function(x){x.classList.remove('drag')})}
+      hd.addEventListener('pointermove',mv);hd.addEventListener('pointerup',up);hd.addEventListener('pointercancel',up);
     });
     box.appendChild(row);
   });
@@ -456,18 +686,18 @@ function saveOrder(){
   for(var i=0;i<rows.length;i++){var r=rows[i],p=r.dataset.p;
     if(r.dataset.t==='4'||!p)items.push({id:r.dataset.id,parentId:null,position:top++});
     else{cnt[p]=cnt[p]||0;items.push({id:r.dataset.id,parentId:p,position:cnt[p]++})}}
-  runJob('حفظ ترتيب الرومات','/api/reorder',{items:items});
+  ordDirty=false;runJob('حفظ ترتيب الرومات','/api/reorder',{items:items});
 }
 
 /* ===== النتائج (معاينة / مقارنة / مشاكل) ===== */
 function out(title){var o=$('out');o.hidden=false;$('otitle').textContent=title;$('obody').textContent='';o.scrollIntoView({behavior:'smooth',block:'start'});return $('obody')}
 function resRow(ok,p,why){
-  var r=el('div','res'),w=el('div','w'),h=el('b',null,p.ar||p);
-  w.appendChild(h);if(p.en)w.appendChild(el('small',null,p.en));if(why)w.appendChild(el('small',null,why));
+  var r=el('div','res'),w=el('div','w'),hh=el('b',null,p.ar||p);
+  w.appendChild(hh);if(p.en)w.appendChild(el('small',null,p.en));if(why)w.appendChild(el('small',null,why));
   r.appendChild(el('span',null,ok?'✅':'❌'));r.appendChild(w);return r;
 }
 function doEffective(){
-  var q=val('efQ').trim();if(!q){alert('اكتب اسم العضو أو الآيدي.');return}
+  var q=val('efQ').trim();if(!q){notify('اكتب اسم العضو أو الآيدي.');return}
   api('/api/effective?q='+encodeURIComponent(q)+'&channelId='+encodeURIComponent(val('efCh'))).then(function(j){
     var b=out('صلاحيات «'+j.member+'» في «'+j.channel+'»');
     ['m','c','v','a'].forEach(function(g){
@@ -496,88 +726,162 @@ function renderSafe(){
   $('lockBox').classList.toggle('on',on);
   $('lockState').textContent=on?'🔴 السيرفر مقفل حالياً':'🟢 السيرفر مفتوح';
   $('lockBtn').hidden=on;$('unlockBtn').hidden=!on;$('lockReason').hidden=on;$('lockClear').hidden=on;
-  var ex=$('exempt');ex.textContent='';
+  if(setDirty)return;
+  var ex=$('exempt'),st=ex.scrollTop;ex.textContent='';
   S.roles.forEach(function(r){
     var l=el('label','pick srch'),cb=document.createElement('input');cb.type='checkbox';cb.value=r.id;cb.checked=S.settings.exempt.indexOf(r.id)>=0;
     l.appendChild(cb);l.appendChild(dot(r.color));l.appendChild(el('span',null,r.name));ex.appendChild(l);
   });
-  $('autoBk').checked=S.settings.auto;
+  ex.scrollTop=st;$('autoBk').checked=S.settings.auto;
 }
 function loadHistory(){
   api('/api/history').then(function(j){
     var box=$('hist');box.textContent='';
     if(!j.list.length)box.appendChild(el('p','muted','ما فيه عمليات بعد.'));
-    j.list.forEach(function(h){
-      var r=el('div','hist'),i=el('div');i.appendChild(el('b',null,h.action));
-      i.appendChild(el('div','muted',new Date(h.at).toLocaleString('ar-SA')+' · بواسطة: '+decodeURIComponentSafe(h.actor)));
+    j.list.forEach(function(x){
+      var r=el('div','hist'),i=el('div');i.appendChild(el('b',null,x.action));
+      i.appendChild(el('div','muted',new Date(x.at).toLocaleString('ar-SA')+' · بواسطة: '+decodeURIComponentSafe(x.actor)));
       r.appendChild(i);
-      if(h.undoable){var u=el('button','btn secondary sm','↩️ تراجع');u.type='button';u.addEventListener('click',function(){if(confirm('التراجع عن «'+h.action+'»؟'))runJob('تراجع','/api/undo',{id:h.id})});r.appendChild(u)}
+      if(x.undoable){var u=el('button','btn secondary sm','↩️ تراجع');u.type='button';u.addEventListener('click',function(){
+        ask('التراجع عن «'+x.action+'»؟',{title:'تراجع',ok:'تراجع',icon:'↩️'}).then(function(ok){if(ok)runJob('تراجع','/api/undo',{id:x.id})});
+      });r.appendChild(u)}
       box.appendChild(r);
     });
   }).catch(function(e){showMsg(e.message)});
 }
 function decodeURIComponentSafe(s){try{return decodeURIComponent(s)}catch(e){return s}}
 
-/* ===== التحميل ===== */
+/* ===== التحميل (ذكي: يحدّث الأجزاء اللي تغيّرت فقط) ===== */
+function applyState(s){
+  S=s;showMsg('');
+  var n={g:h([s.guilds,s.guildId,s.guildName]),r:h(s.roles),c:h(s.channels),b:h(s.backups),l:h([s.lock,s.settings])};
+  var ch={},any=false;for(var k in n){ch[k]=(n[k]!==sig[k]);if(ch[k])any=true;sig[k]=n[k]}
+  if(ch.g)renderGuilds();
+  if(ch.r)renderRoles();
+  if(ch.r||ch.c)fillAll();
+  if(ch.r)renderPerm();
+  if(ch.c){renderChans();renderOrder()}
+  if(ch.r||ch.b)renderBackups();
+  if(ch.r||ch.l)renderSafe();
+  if(any){renderStats();applyQ()}
+  return any;
+}
 function load(){
-  var p=M?Promise.resolve():api('/api/meta').then(function(m){M=m});
-  return p.then(function(){return api('/api/state')}).then(function(s){
-    S=s;showMsg('');renderGuilds();renderRoles();renderBackups();fillAll();renderPerm();renderChans();renderOrder();renderSafe();applyQ();
-  }).catch(function(e){showMsg(e.message)});
+  if(loading){again=true;return loadP}
+  loading=true;
+  loadP=(M?Promise.resolve():api('/api/meta').then(function(m){M=m})).then(function(){return api('/api/state')}).then(applyState)
+  .catch(function(e){showMsg(e.message);return false})
+  .then(function(c){loading=false;if(again){again=false;return load().then(function(c2){return c||c2})}return c});
+  return loadP;
 }
 
+/* ===== التحديث الفوري (SSE) ===== */
+function live(ok,n){
+  var b=$('live');b.classList.toggle('off',!ok);
+  $('liveTx').textContent=ok?('مباشر'+(n>1?' · '+n+' متصلين':'')):'إعادة الاتصال…';
+}
+function onChanged(d){
+  lastD=d||lastD;clearTimeout(ct);
+  ct=setTimeout(function(){
+    var d2=lastD;lastD=null;
+    load().then(function(changed){
+      if(changed&&d2&&d2.by!==CID)toast(d2.why?('🔄 تحديث مباشر: '+d2.why):'🔄 تم تحديث البيانات مباشرةً','info');
+      if(curTab==='safe')loadHistory();
+    });
+  },200);
+}
+function parse(e){try{return JSON.parse(e.data)}catch(x){return {}}}
+function connect(){
+  if(es){es.close();es=null}
+  es=new EventSource('/events?cid='+encodeURIComponent(CID));
+  es.addEventListener('hello',function(e){var d=parse(e);live(true,d.n);if(d.job&&d.job.by!==CID)attach(d.job)});
+  es.addEventListener('presence',function(e){live(true,parse(e).n)});
+  es.addEventListener('changed',function(e){onChanged(parse(e))});
+  es.addEventListener('jobstart',function(e){var d=parse(e);if(d.by!==CID)attach(d)});
+  es.onopen=function(){if(wasDown){wasDown=false;onChanged(null)}};
+  es.onerror=function(){
+    live(false);wasDown=true;
+    if(es&&es.readyState===2){
+      fetch('/api/meta',{credentials:'same-origin'}).then(function(r){if(r.status===401)location.href='/login';else setTimeout(connect,3000)}).catch(function(){setTimeout(connect,3000)});
+    }
+  };
+}
+document.addEventListener('visibilitychange',function(){if(!document.hidden){connect();onChanged(null)}});
+window.addEventListener('pageshow',function(e){if(e.persisted){connect();onChanged(null)}});
+window.addEventListener('online',function(){connect();onChanged(null)});
+
 /* ===== الأحداث ===== */
-['roles','perms','chans','check','safe'].forEach(function(t){$('b-'+t).addEventListener('click',function(){tab(t)})});
+TABS.forEach(function(t){$('b-'+t).addEventListener('click',function(){tab(t)})});
 $('q').addEventListener('input',applyQ);
-$('guildSel').addEventListener('change',function(){api('/api/guild','POST',{guildId:this.value}).then(function(){chosen={};chCh={};return load()}).catch(function(e){showMsg(e.message)})});
+$('guildSel').addEventListener('change',function(){api('/api/guild','POST',{guildId:this.value}).then(function(){chosen={};chCh={};ordDirty=false;setDirty=false;permForce=true;return load()}).catch(function(e){showMsg(e.message)})});
 $('selectAll').addEventListener('click',function(){S.roles.forEach(function(r){chosen[r.id]=true});renderRoles()});
 $('clearAll').addEventListener('click',function(){chosen={};renderRoles()});
 $('backupBtn').addEventListener('click',function(){var i=$('label'),l=i.value;i.value='';runJob('نسخ الرتب والرومات','/api/backup',{label:l})});
 $('deleteBtn').addEventListener('click',function(){
   var ids=Object.keys(chosen).filter(function(k){return chosen[k]});
-  if(!ids.length){alert('حدد رتبة واحدة على الأقل.');return}
-  if(!$('dry').checked&&!confirm('متأكد من حذف '+ids.length+' رتبة؟'))return;
-  runJob('حذف الرتب','/api/delete',{roleIds:ids});
+  if(!ids.length){notify('حدد رتبة واحدة على الأقل.');return}
+  maybe('متأكد من حذف '+ids.length+' رتبة؟\nتقدر تتراجع من تبويب الأمان لكن الرتبة ترجع بدون أعضائها.',{title:'حذف الرتب',ok:'حذف',danger:true,icon:'🗑️'}).then(function(ok){
+    if(ok)runJob('حذف الرتب','/api/delete',{roleIds:ids});
+  });
 });
 $('pclose').addEventListener('click',function(){$('progress').hidden=true});
 $('oclose').addEventListener('click',function(){$('out').hidden=true});
-$('pr').addEventListener('change',renderPerm);
+$('pr').addEventListener('change',function(){renderPerm(true)});
+$('permReload').addEventListener('click',function(){renderPerm(true)});
+$('ordReload').addEventListener('click',function(){renderOrder(true)});
 $('savePerm').addEventListener('click',savePerms);
 $('cmpBtn').addEventListener('click',doCompare);
 $('cpRole').addEventListener('click',function(){
-  if(val('pr')===val('cpTo')){alert('اختر رتبة ثانية.');return}
-  if(!$('dry').checked&&!confirm('نسخ صلاحيات الرتبة المحددة فوق صلاحيات الهدف (تُستبدل)؟'))return;
-  runJob('نسخ صلاحيات رتبة','/api/copy-role',{from:val('pr'),to:val('cpTo')});
+  if(val('pr')===val('cpTo')){notify('اختر رتبة ثانية.');return}
+  maybe('نسخ صلاحيات الرتبة المحددة فوق صلاحيات الهدف؟ (تُستبدل)',{title:'نسخ صلاحيات رتبة',ok:'انسخ',icon:'📋'}).then(function(ok){
+    if(ok)runJob('نسخ صلاحيات رتبة','/api/copy-role',{from:val('pr'),to:val('cpTo')});
+  });
 });
 $('ccBtn').addEventListener('click',function(){
-  if(val('ccA')===val('ccB')){alert('اختر روميّن مختلفين.');return}
-  if(!$('dry').checked&&!confirm('نسخ صلاحيات الروم الأول فوق الثاني (تُستبدل)؟'))return;
-  runJob('نسخ صلاحيات روم','/api/copy-channel',{from:val('ccA'),to:val('ccB')});
+  if(val('ccA')===val('ccB')){notify('اختر روميّن مختلفين.');return}
+  maybe('نسخ صلاحيات الروم الأول فوق الثاني؟ (تُستبدل)',{title:'نسخ صلاحيات روم',ok:'انسخ',icon:'📋'}).then(function(ok){
+    if(ok)runJob('نسخ صلاحيات روم','/api/copy-channel',{from:val('ccA'),to:val('ccB')});
+  });
 });
-$('chAll').addEventListener('click',function(){S.channels.forEach(function(c){if(c.type!==4)chCh[c.id]=true});renderChans();$('chCount').textContent=Object.keys(chCh).length+' محدد'});
-$('chNone').addEventListener('click',function(){chCh={};renderChans();$('chCount').textContent='0 محدد'});
+$('chAll').addEventListener('click',function(){S.channels.forEach(function(c){if(c.type!==4)chCh[c.id]=true});renderChans()});
+$('chNone').addEventListener('click',function(){chCh={};renderChans()});
 $('bulkBtn').addEventListener('click',function(){
   var ids=Object.keys(chCh).filter(function(k){return chCh[k]});
-  if(!ids.length){alert('حدد روم واحد على الأقل.');return}
+  if(!ids.length){notify('حدد روم واحد على الأقل.');return}
   runJob('تعديل جماعي','/api/bulk',{channelIds:ids,target:val('bkT'),perm:val('bkP'),value:val('bkV')});
 });
 $('tpBtn').addEventListener('click',function(){
   runJob('إنشاء روم من قالب','/api/template',{type:val('tpType'),name:val('tpName'),categoryId:val('tpCat'),staffRoleId:val('tpRole')});
 });
 $('ordSave').addEventListener('click',saveOrder);
-$('ordReset').addEventListener('click',renderOrder);
+$('ordReset').addEventListener('click',function(){renderOrder(true)});
 $('efBtn').addEventListener('click',doEffective);
 $('probBtn').addEventListener('click',doProblems);
 $('lockBtn').addEventListener('click',function(){
-  if(!$('dry').checked&&!confirm('🚨 قفل الطوارئ: تُخفى كل الرومات عن الجميع وينشأ روم تحذير. متأكد؟'))return;
-  runJob('🚨 قفل الطوارئ','/api/lockdown',{reason:val('lockReason'),clearChannelId:val('lockClear').trim()},true);
+  maybe('تُخفى كل الرومات عن الجميع وينشأ روم تحذير.\nمتأكد تبي تقفل السيرفر؟',{title:'قفل الطوارئ',ok:'🚨 اقفل الآن',danger:true,icon:'🚨'}).then(function(ok){
+    if(ok)runJob('🚨 قفل الطوارئ','/api/lockdown',{reason:val('lockReason'),clearChannelId:val('lockClear').trim()},true);
+  });
 });
-$('unlockBtn').addEventListener('click',function(){if(confirm('فتح السيرفر وإرجاع كل الصلاحيات كما كانت؟'))runJob('فتح السيرفر','/api/unlock',{},true)});
+$('unlockBtn').addEventListener('click',function(){
+  ask('فتح السيرفر وإرجاع كل الصلاحيات كما كانت؟',{title:'فتح السيرفر',ok:'🔓 افتح',icon:'🔓'}).then(function(ok){
+    if(ok)runJob('فتح السيرفر','/api/unlock',{},true);
+  });
+});
+$('exempt').addEventListener('change',function(){setDirty=true});
+$('autoBk').addEventListener('change',function(){setDirty=true});
 $('saveSet').addEventListener('click',function(){
   var ex=[].slice.call($('exempt').querySelectorAll('input:checked')).map(function(x){return x.value});
-  api('/api/settings','POST',{exempt:ex,auto:$('autoBk').checked}).then(function(){showMsg('تم حفظ الإعدادات.','ok');return load()}).catch(function(e){showMsg(e.message)});
+  api('/api/settings','POST',{exempt:ex,auto:$('autoBk').checked},'حفظ الإعدادات').then(function(){setDirty=false;toast('تم حفظ الإعدادات','ok');return load()}).catch(function(e){showMsg(e.message)});
 });
-load();
+$('backups').addEventListener('toggle',function(){if(bkPending&&!document.querySelector('#backups details.restore[open]'))renderBackups()},true);
+
+/* ===== تشغيل ===== */
+[].forEach.call(document.querySelectorAll('select'),enhance);
+function hh(){var x=document.querySelector('header');if(x)document.documentElement.style.setProperty('--hh',x.offsetHeight+'px')}
+hh();window.addEventListener('resize',hh);window.addEventListener('load',hh);
+if(window.ResizeObserver)new ResizeObserver(hh).observe(document.querySelector('header'));
+var h0=location.hash.slice(1);if(TABS.indexOf(h0)>=0)tab(h0);
+load().then(connect);
 })();
 `;
 
@@ -591,7 +895,9 @@ app.get("/", requireAuth, (req, res) => {
   res.send(layout("لوحة إدارة السيرفر", `
     <section class="hero">
       <h1>لوحة إدارة السيرفر</h1>
-      <div class="row"><span class="muted">السيرفر الحالي:</span><select id="guildSel"></select></div>
+      <p class="muted">أي تغيير يسويه أي شخص داخل الموقع يظهر عند الكل فوراً بدون تحديث.</p>
+      <div class="row"><span class="muted">السيرفر الحالي:</span><select id="guildSel" class="g" data-t="اختر السيرفر"></select></div>
+      <div class="stats" id="stats"></div>
       <div id="msg"></div>
     </section>
 
@@ -615,14 +921,14 @@ app.get("/", requireAuth, (req, res) => {
     ${sec("roles", `
     <div class="grid">
       <section class="card">
-        <h2>نسخ السيرفر (رتب + رومات + صلاحيات)</h2>
+        <h2>💾 نسخ السيرفر (رتب + رومات + صلاحيات)</h2>
         <p class="muted">يحفظ الرتب والرومات والتصنيفات وصلاحياتها. ينسخ تلقائياً كل يوم، وتقدر تنسخ يدوياً.</p>
         <label>اسم النسخة (اختياري)</label>
         <input type="text" id="label" maxlength="80" placeholder="مثال: قبل التحديث">
         <button class="btn good" type="button" id="backupBtn">نسخ الآن</button>
       </section>
       <section class="card">
-        <h2>حذف الرتب المحددة</h2>
+        <h2>🗑️ حذف الرتب المحددة</h2>
         <div class="row"><button type="button" class="btn secondary sm" id="selectAll">تحديد الكل</button>
         <button type="button" class="btn secondary sm" id="clearAll">إلغاء</button><span class="muted" id="count">0 محدد</span></div>
         <div class="roles" id="roles"></div>
@@ -630,62 +936,66 @@ app.get("/", requireAuth, (req, res) => {
         <button class="btn danger" type="button" id="deleteBtn">حذف الرتب المحددة</button>
       </section>
     </div>
-    <section class="card"><h2>النسخ الاحتياطية والنقل بين السيرفرات</h2>
+    <section class="card" style="margin-top:14px"><h2>📦 النسخ الاحتياطية والنقل بين السيرفرات</h2>
       <p class="muted">لنقل سيرفر كامل: غيّر السيرفر من القائمة فوق ثم افتح «استعادة» على نسخة السيرفر الأول.</p>
       <div id="backups"><p class="muted">جاري التحميل…</p></div></section>`)}
 
     ${sec("perms", `
     <section class="card">
-      <h2>صلاحيات الرتب</h2>
+      <h2>🔑 صلاحيات الرتب</h2>
       <p class="muted">اختر رتبة وعدّل صلاحياتها. الاسم بالعربي والإنجليزي تحته ملاحظة.</p>
-      <select id="pr" class="full"></select>
+      <select id="pr" class="full" data-t="اختر الرتبة"></select>
+      <div class="alert warn" id="permNote" hidden>⚠️ تغيّرت صلاحيات هذه الرتبة من جهاز ثاني وعندك تعديلات ما انحفظت.
+        <div class="row"><button class="btn secondary sm" id="permReload" type="button">تجاهل تعديلاتي وحدّث</button></div></div>
       <div id="permBox"></div>
       <button class="btn good" type="button" id="savePerm">حفظ التعديلات</button>
     </section>
     <section class="card">
-      <h2>نسخ صلاحيات الرتبة المحددة إلى رتبة ثانية</h2>
-      <div class="row"><select id="cpTo"></select><button class="btn" type="button" id="cpRole">نسخ بضغطة</button></div>
-      <h2 style="margin-top:18px">مقارنة الرتبة المحددة برتبة ثانية</h2>
-      <div class="row"><select id="cmpB"></select><button class="btn secondary" type="button" id="cmpBtn">قارن</button></div>
+      <h2>📋 نسخ صلاحيات الرتبة المحددة إلى رتبة ثانية</h2>
+      <div class="row"><select id="cpTo" data-t="انسخ إلى رتبة"></select><button class="btn" type="button" id="cpRole">نسخ بضغطة</button></div>
+      <h2 style="margin-top:18px">⚖️ مقارنة الرتبة المحددة برتبة ثانية</h2>
+      <div class="row"><select id="cmpB" data-t="قارن مع رتبة"></select><button class="btn secondary" type="button" id="cmpBtn">قارن</button></div>
     </section>`)}
 
     ${sec("chans", `
     <div class="grid">
       <section class="card">
-        <h2>تعديل جماعي</h2>
+        <h2>⚙️ تعديل جماعي</h2>
         <p class="muted">حدد الرومات من القائمة تحت، ثم اختر الرتبة والصلاحية.</p>
-        <label>الرتبة</label><select id="bkT" class="full"></select>
-        <label>الصلاحية</label><select id="bkP" class="full"></select>
+        <label>الرتبة</label><select id="bkT" class="full" data-t="الرتبة"></select>
+        <label>الصلاحية</label><select id="bkP" class="full" data-t="الصلاحية"></select>
         <label>الإجراء</label>
-        <select id="bkV" class="full"><option value="allow">سماح</option><option value="deny">منع</option><option value="neutral">إلغاء التخصيص</option></select>
+        <select id="bkV" class="full" data-t="الإجراء"><option value="allow">سماح</option><option value="deny">منع</option><option value="neutral">إلغاء التخصيص</option></select>
         <button class="btn" type="button" id="bulkBtn">تطبيق على المحدد</button>
       </section>
       <section class="card">
-        <h2>روم جاهز من قالب</h2>
-        <select id="tpType" class="full">
+        <h2>✨ روم جاهز من قالب</h2>
+        <select id="tpType" class="full" data-t="نوع القالب">
           <option value="announce">📢 إعلانات (قراءة فقط)</option><option value="chat">💬 دردشة</option>
           <option value="staff">🔒 إدارة (مخفي)</option><option value="voice">🔊 صوت</option></select>
         <input type="text" id="tpName" maxlength="90" placeholder="اسم الروم (اختياري)">
-        <label>التصنيف</label><select id="tpCat" class="full"></select>
-        <label>رتبة الإدارة (لقالب الإدارة)</label><select id="tpRole" class="full"></select>
+        <label>التصنيف</label><select id="tpCat" class="full" data-t="التصنيف"></select>
+        <label>رتبة الإدارة (لقالب الإدارة)</label><select id="tpRole" class="full" data-t="رتبة الإدارة"></select>
         <button class="btn good" type="button" id="tpBtn">إنشاء</button>
       </section>
       <section class="card">
-        <h2>نسخ صلاحيات روم لروم</h2>
-        <label>من</label><select id="ccA" class="full"></select>
-        <label>إلى (تُستبدل صلاحياته)</label><select id="ccB" class="full"></select>
+        <h2>🔁 نسخ صلاحيات روم لروم</h2>
+        <label>من</label><select id="ccA" class="full" data-t="من روم"></select>
+        <label>إلى (تُستبدل صلاحياته)</label><select id="ccB" class="full" data-t="إلى روم"></select>
         <button class="btn" type="button" id="ccBtn">نسخ بضغطة</button>
       </section>
     </div>
-    <section class="card">
-      <h2>الرومات والتصنيفات</h2>
+    <section class="card" style="margin-top:14px">
+      <h2>💬 الرومات والتصنيفات</h2>
       <div class="row"><button type="button" class="btn secondary sm" id="chAll">تحديد الكل</button>
       <button type="button" class="btn secondary sm" id="chNone">إلغاء</button><span class="muted" id="chCount">0 محدد</span></div>
       <div id="chList"></div>
     </section>
     <section class="card">
-      <h2>ترتيب الرومات والتصنيفات</h2>
+      <h2>↕️ ترتيب الرومات والتصنيفات</h2>
       <p class="muted">اضغط على ☰ واسحب الروم لمكانه. اسحب التصنيف وتتحرك معه رومّاته. الروم يدخل تحت التصنيف اللي فوقه. بعدين اضغط «حفظ الترتيب».</p>
+      <div class="alert warn" id="ordNote" hidden>⚠️ تغيّر ترتيب الرومات من جهاز ثاني وعندك ترتيب ما انحفظ.
+        <div class="row"><button class="btn secondary sm" id="ordReload" type="button">تجاهل ترتيبي وحدّث</button></div></div>
       <div id="ordList"></div>
       <div class="row"><button class="btn good" type="button" id="ordSave">حفظ الترتيب</button>
       <button class="btn secondary" type="button" id="ordReset">تراجع عن السحب</button></div>
@@ -693,13 +1003,13 @@ app.get("/", requireAuth, (req, res) => {
 
     ${sec("check", `
     <section class="card">
-      <h2>وش يقدر يسوي عضو في روم؟</h2>
+      <h2>🧐 وش يقدر يسوي عضو في روم؟</h2>
       <input type="text" id="efQ" placeholder="اسم العضو أو الآيدي">
-      <select id="efCh" class="full"></select>
+      <select id="efCh" class="full" data-t="اختر الروم"></select>
       <button class="btn" type="button" id="efBtn">معاينة الصلاحيات الفعلية</button>
     </section>
     <section class="card">
-      <h2>كشف المشاكل</h2>
+      <h2>🩺 كشف المشاكل</h2>
       <p class="muted">رومات مفتوحة للكل بالغلط، رتب مكررة، رتب فاضية، وصلاحيات خطيرة.</p>
       <button class="btn secondary" type="button" id="probBtn">افحص السيرفر</button>
     </section>`)}
@@ -716,23 +1026,102 @@ app.get("/", requireAuth, (req, res) => {
       <button class="btn good" type="button" id="unlockBtn" hidden>🔓 فتح السيرفر</button>
     </section>
     <section class="card">
-      <h2>الإعدادات</h2>
+      <h2>⚙️ الإعدادات</h2>
       <p class="muted">رتب الملكية اللي تشوف الرومات وقت القفل (المالك نفسه دائماً يشوف):</p>
       <div class="roles" id="exempt"></div>
-      <label class="pick"><input type="checkbox" id="autoBk"> نسخة احتياطية تلقائية يومياً</label>
+      <label class="pick" style="margin-bottom:10px"><input type="checkbox" id="autoBk"> نسخة احتياطية تلقائية يومياً</label>
       <button class="btn" type="button" id="saveSet">حفظ الإعدادات</button>
       <p class="muted">أوامر السلاش في ديسكورد: ‎/lockdown ‎/unlock ‎/backup ‎/check</p>
     </section>
-    <section class="card"><h2>السجل (من غيّر وش ومتى)</h2><div id="hist"><p class="muted">جاري التحميل…</p></div></section>`)}
+    <section class="card"><h2>📜 السجل (من غيّر وش ومتى)</h2><div id="hist"><p class="muted">جاري التحميل…</p></div></section>`)}
 
     <script src="/client.js?v=${BUILD}"></script>`, true));
 });
+
+// ============ التحديث الفوري لكل المتصلين (SSE) ============
+const clients = new Set();           // كل جهاز/تبويب مفتوح الآن
+const activeJobs = new Map();        // guildId -> عملية شغالة
+const sseWrite = (c, ev, data) => { try { c.res.write(`event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`); } catch {} };
+const toGuild = (gid, ev, data) => { for (const c of clients) if (c.gid === gid) sseWrite(c, ev, data); };
+const toAll = (ev, data) => { for (const c of clients) sseWrite(c, ev, data); };
+const online = () => new Set([...clients].map(c => c.cid)).size;
+const setGuild = (sid, gid) => { for (const c of clients) if (c.sid === sid) c.gid = gid; };
+
+app.get("/events", requireApi, (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no"
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  res.write("retry: 2500\n\n");
+  const c = {
+    res, sid: req.sessionID,
+    cid: String(req.query.cid || crypto.randomBytes(6).toString("hex")).slice(0, 40),
+    gid: req.session.guildId || ""
+  };
+  clients.add(c);
+  sseWrite(c, "hello", { n: online(), job: activeJobs.get(c.gid) || null });
+  toAll("presence", { n: online() });
+  const hb = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 20000);
+  req.on("close", () => { clearInterval(hb); clients.delete(c); toAll("presence", { n: online() }); });
+});
+
+// يتابع العملية لين تخلص ثم يبلّغ الكل يحدّثون
+async function watchJob(jobId, gid, by, title) {
+  activeJobs.set(gid, { jobId, title, by });
+  toGuild(gid, "jobstart", { jobId, title, by });
+  let since = 0, fails = 0;
+  const t0 = Date.now();
+  while (fails < 20 && Date.now() - t0 < 30 * 60 * 1000) {
+    await new Promise(r => setTimeout(r, 900));
+    try {
+      const j = await bot("/api/job/" + encodeURIComponent(jobId) + "?since=" + since + "&guildId=" + encodeURIComponent(gid), "GET", undefined, "auto");
+      fails = 0; if (j.next != null) since = j.next;
+      if (j.done) break;
+    } catch { fails++; }
+  }
+  const a = activeJobs.get(gid);
+  if (a && a.jobId === jobId) activeJobs.delete(gid);
+  toGuild(gid, "changed", { by, why: title });
+}
+
+// يراقب تغييرات تصير من برا الموقع (أوامر ديسكورد، النسخ التلقائي…)
+const lastSig = new Map();
+let ticking = false;
+async function watchTick() {
+  if (ticking) return; ticking = true;
+  try {
+    const gids = new Set([...clients].map(c => c.gid).filter(Boolean));
+    for (const gid of gids) {
+      try {
+        const j = await bot("/api/state?guildId=" + encodeURIComponent(gid), "GET", undefined, "auto");
+        const s = crypto.createHash("sha1").update(JSON.stringify(j)).digest("hex");
+        const prev = lastSig.get(gid);
+        lastSig.set(gid, s);
+        if (prev && prev !== s) toGuild(gid, "changed", { by: "bot" });
+      } catch {}
+    }
+    for (const g of [...lastSig.keys()]) if (!gids.has(g)) lastSig.delete(g);
+  } finally { ticking = false; }
+}
+setInterval(watchTick, 5000);
+
+function afterMutation(req, gid, j) {
+  const cid = String(req.get("x-cid") || "").slice(0, 40);
+  let title = ""; try { title = decodeURIComponent(req.get("x-job-title") || ""); } catch {}
+  title = title.slice(0, 80);
+  if (j && j.jobId) watchJob(j.jobId, gid, cid, title);
+  else toGuild(gid, "changed", { by: cid, why: title });
+}
 
 // ============ API: يمرّر كل شي للبوت مع تثبيت السيرفر الحالي ============
 app.use("/api", requireApi, async (req, res) => {
   try {
     if (req.path === "/guild" && req.method === "POST") {
-      req.session.guildId = String((req.body && req.body.guildId) || "");
+      const g = String((req.body && req.body.guildId) || "");
+      req.session.guildId = g; setGuild(req.sessionID, g);
       return res.json({ ok: true });
     }
     const gid = req.session.guildId || "";
@@ -740,7 +1129,8 @@ app.use("/api", requireApi, async (req, res) => {
     if (req.method === "GET") path += (path.includes("?") ? "&" : "?") + "guildId=" + encodeURIComponent(gid);
     const body = req.method === "GET" ? undefined : { ...req.body, guildId: gid };
     const j = await bot(path, req.method, body, req.ip);
-    if (req.path === "/state") req.session.guildId = j.guildId;
+    if (req.path === "/state") { req.session.guildId = j.guildId; setGuild(req.sessionID, j.guildId); }
+    if (req.method !== "GET") afterMutation(req, gid, j);
     res.json(j);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
