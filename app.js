@@ -209,6 +209,15 @@ input.shs{width:calc(100% - 28px);margin:6px 14px 8px}
 @keyframes pulse{50%{box-shadow:0 0 0 6px #e11d4833}}
 .hist{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)}
 .hist:last-child{border-bottom:0}
+/* محرر صلاحيات الروم */
+.seg{display:flex;gap:4px;flex:0 0 auto;background:#0a1122;border:1px solid var(--line);border-radius:12px;padding:3px}
+.sg{border:0;background:transparent;color:var(--muted);min-width:40px;min-height:38px;border-radius:9px;font:inherit;font-size:15px;cursor:pointer}
+.sg.on{background:var(--panel3);color:var(--text)}
+.sg.on[data-v=allow]{background:#10805b66}.sg.on[data-v=deny]{background:#9f1d3f77}.sg.on[data-v=neutral]{background:#92661a66}
+.pe .pt{flex:1;min-width:0}
+.pe.chg{border-color:var(--accent2)}
+.tgt{padding:10px 14px;border-radius:12px;background:#0a1122;border:1px dashed var(--line2);margin:8px 0;font-weight:700}
+@media(max-width:520px){.pe{flex-wrap:wrap}.pe .seg{width:100%}.pe .sg{flex:1}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 @media(max-width:520px){.card{padding:15px}.hero{padding:16px}.btn{padding:11px 15px}}
 `;
@@ -588,6 +597,8 @@ function fillAll(){
   var rv=function(r){return r.id},rl=function(r){return r.name},cv=function(c){return c.id},cl=function(c){return icon(c.type)+' '+c.name};
   ['pr','cmpB','cpTo','tpRole'].forEach(function(i){fillSel(i,S.roles,rv,rl)});
   fillSel('bkT',S.roles,rv,rl,[S.guildId,'@everyone (الكل)']);
+  fillSel('peRole',S.roles,rv,rl,[S.guildId,'@everyone (الكل)']);
+  fillSel('peCh',S.channels,cv,cl);peUpd();
   var nc=S.channels.filter(function(c){return c.type!==4});
   ['ccA','ccB','efCh'].forEach(function(i){fillSel(i,nc,cv,cl)});
   fillSel('tpCat',S.channels.filter(function(c){return c.type===4}),cv,cl,['','بدون تصنيف']);
@@ -639,9 +650,50 @@ function renderChans(){
     row.appendChild(cb);row.appendChild(el('span',null,icon(c.type)+' '+c.name));box.appendChild(row);
   });
   chCnt();
-  if(!sig.bkP){fillSel('bkP',M.perms,function(p){return p.k},function(p){return p.ar+' — '+p.en});sig.bkP=1}
+  if(!sig.bkP){fillSel('bkP',M.perms,function(p){return p.k},function(p){return p.ar+' — '+p.en});buildPE();sig.bkP=1}
 }
-function chCnt(){var n=0;for(var k in chCh)if(chCh[k])n++;$('chCount').textContent=n+' محدد'}
+function chCnt(){var n=0;for(var k in chCh)if(chCh[k])n++;$('chCount').textContent=n+' محدد';peUpd()}
+/* ===== محرر صلاحيات الروم ===== */
+function peIds(){var c=Object.keys(chCh).filter(function(k){return chCh[k]});return c.length?c:(val('peCh')?[val('peCh')]:[])}
+function selText(id){var s=$(id),o=s.options[s.selectedIndex];return o?o.textContent:''}
+function peUpd(){
+  var n=Object.keys(chCh).filter(function(k){return chCh[k]}).length,t=$('peTgt');if(!t)return;
+  t.textContent=n?('🎯 الهدف: '+n+' روم محدد من القائمة تحت'):('🎯 الهدف: '+(selText('peCh')||'—'));
+}
+function buildPE(){
+  var box=$('peBox');box.textContent='';
+  ['m','c','v'].forEach(function(g){
+    box.appendChild(el('h3','gh',M.groups[g]));
+    M.perms.filter(function(p){return p.g===g}).forEach(function(p){
+      var row=el('div','prm pe srch'+(p.danger?' dng':''));row.dataset.k=p.k;row.dataset.v='';
+      var t=el('div','pt'),hh=el('b',null,p.ar);if(p.danger)hh.appendChild(el('span','wb','⚠️ خطيرة'));
+      t.appendChild(hh);t.appendChild(el('small','en',p.en));
+      var sg=el('div','seg');
+      [['','—','بدون تغيير'],['allow','✅','سماح'],['deny','❌','منع'],['neutral','↺','إلغاء التخصيص']].forEach(function(o){
+        var b=el('button','sg'+(o[0]===''?' on':''),o[1]);b.type='button';b.title=o[2];b.setAttribute('aria-label',o[2]);b.dataset.v=o[0];
+        b.addEventListener('click',function(){row.dataset.v=o[0];row.classList.toggle('chg',!!o[0]);[].forEach.call(sg.children,function(x){x.classList.toggle('on',x===b)})});
+        sg.appendChild(b);
+      });
+      row.appendChild(t);row.appendChild(sg);box.appendChild(row);
+    });
+  });
+}
+function peReset(){
+  [].forEach.call($('peBox').querySelectorAll('.pe'),function(r){r.dataset.v='';r.classList.remove('chg');[].forEach.call(r.querySelectorAll('.sg'),function(b){b.classList.toggle('on',b.dataset.v==='')})});
+}
+/* سلسلة عمليات متتابعة في لوحة تقدم وحدة */
+function runChain(title,steps,after){
+  if(busy||fbusy){notify('فيه عملية شغالة الحين، انتظر تخلص.');return}
+  var dry=$('dry').checked,i=0,full=title+(dry?' (معاينة)':'');
+  busy=true;document.body.classList.add('busy');openProgress(full);
+  function fin(){busy=false;document.body.classList.remove('busy');$('pclose').hidden=false;if(after)after();return load()}
+  (function next(){
+    if(i>=steps.length)return fin();
+    var st=steps[i++],b=st.body;if(dry)b.dry=true;
+    logLine('info','('+i+'/'+steps.length+') '+st.label);
+    api(st.path,'POST',b,full).then(function(j){return poll(j.jobId)}).then(next).catch(function(e){logLine('error',e.message);fin()});
+  })();
+}
 
 /* ===== ترتيب الرومات بالسحب والإفلات (يشتغل بالجوال) ===== */
 function norm(){
@@ -751,6 +803,10 @@ function loadHistory(){
 }
 function decodeURIComponentSafe(s){try{return decodeURIComponent(s)}catch(e){return s}}
 
+function resetForGuild(){
+  chosen={};chCh={};ordDirty=false;setDirty=false;permForce=true;bkPending=false;
+  [].forEach.call(document.querySelectorAll('#backups details.restore[open]'),function(d){d.open=false});
+}
 /* ===== التحميل (ذكي: يحدّث الأجزاء اللي تغيّرت فقط) ===== */
 function applyState(s){
   S=s;showMsg('');
@@ -797,6 +853,7 @@ function connect(){
   es.addEventListener('hello',function(e){var d=parse(e);live(true,d.n);if(d.job&&d.job.by!==CID)attach(d.job)});
   es.addEventListener('presence',function(e){live(true,parse(e).n)});
   es.addEventListener('changed',function(e){onChanged(parse(e))});
+  es.addEventListener('guild',function(e){var d=parse(e);if(d.by!==CID){resetForGuild();toast('🔄 تم تغيير السيرفر من جهاز ثاني','info')}onChanged(null)});
   es.addEventListener('jobstart',function(e){var d=parse(e);if(d.by!==CID)attach(d)});
   es.onopen=function(){if(wasDown){wasDown=false;onChanged(null)}};
   es.onerror=function(){
@@ -813,7 +870,7 @@ window.addEventListener('online',function(){connect();onChanged(null)});
 /* ===== الأحداث ===== */
 TABS.forEach(function(t){$('b-'+t).addEventListener('click',function(){tab(t)})});
 $('q').addEventListener('input',applyQ);
-$('guildSel').addEventListener('change',function(){api('/api/guild','POST',{guildId:this.value}).then(function(){chosen={};chCh={};ordDirty=false;setDirty=false;permForce=true;return load()}).catch(function(e){showMsg(e.message)})});
+$('guildSel').addEventListener('change',function(){api('/api/guild','POST',{guildId:this.value}).then(function(){resetForGuild();return load()}).catch(function(e){showMsg(e.message)})});
 $('selectAll').addEventListener('click',function(){S.roles.forEach(function(r){chosen[r.id]=true});renderRoles()});
 $('clearAll').addEventListener('click',function(){chosen={};renderRoles()});
 $('backupBtn').addEventListener('click',function(){var i=$('label'),l=i.value;i.value='';runJob('نسخ الرتب والرومات','/api/backup',{label:l})});
@@ -874,6 +931,19 @@ $('saveSet').addEventListener('click',function(){
   api('/api/settings','POST',{exempt:ex,auto:$('autoBk').checked},'حفظ الإعدادات').then(function(){setDirty=false;toast('تم حفظ الإعدادات','ok');return load()}).catch(function(e){showMsg(e.message)});
 });
 $('backups').addEventListener('toggle',function(){if(bkPending&&!document.querySelector('#backups details.restore[open]'))renderBackups()},true);
+
+$('peCh').addEventListener('change',peUpd);
+$('peReset').addEventListener('click',peReset);
+$('peApply').addEventListener('click',function(){
+  var ids=peIds();if(!ids.length){notify('اختر روم أو حدد رومات من القائمة.');return}
+  var rows=[].slice.call($('peBox').querySelectorAll('.pe')).filter(function(r){return r.dataset.v});
+  if(!rows.length){notify('ما غيّرت أي صلاحية.');return}
+  var tg=val('peRole'),VN={allow:'سماح',deny:'منع',neutral:'إلغاء التخصيص'};
+  maybe('تطبيق '+rows.length+' تغيير على '+ids.length+' روم للرتبة «'+selText('peRole')+'»؟',{title:'صلاحيات الروم',ok:'طبّق',icon:'🎚️'}).then(function(ok){
+    if(!ok)return;
+    runChain('صلاحيات الروم',rows.map(function(r){return {path:'/api/bulk',label:permName(r.dataset.k).ar+' ← '+VN[r.dataset.v],body:{channelIds:ids,target:tg,perm:r.dataset.k,value:r.dataset.v}}}),peReset);
+  });
+});
 
 /* ===== تشغيل ===== */
 [].forEach.call(document.querySelectorAll('select'),enhance);
@@ -992,6 +1062,16 @@ app.get("/", requireAuth, (req, res) => {
       <div id="chList"></div>
     </section>
     <section class="card">
+      <h2>🎚️ صلاحيات الروم (تعديل كامل)</h2>
+      <p class="muted">اختر الرتبة، وحدد الروم (أو حدد عدة رومات من القائمة فوق)، وبعدين لكل صلاحية اختر: — بدون تغيير · ✅ سماح · ❌ منع · ↺ إلغاء التخصيص. اللي تحطه فقط ينطبق.</p>
+      <label>الرتبة</label><select id="peRole" class="full" data-t="الرتبة"></select>
+      <label>الروم</label><select id="peCh" class="full" data-t="اختر الروم"></select>
+      <div class="tgt" id="peTgt"></div>
+      <div id="peBox"></div>
+      <div class="row"><button class="btn good" type="button" id="peApply">تطبيق التغييرات</button>
+      <button class="btn secondary" type="button" id="peReset">تصفير الاختيارات</button></div>
+    </section>
+    <section class="card">
       <h2>↕️ ترتيب الرومات والتصنيفات</h2>
       <p class="muted">اضغط على ☰ واسحب الروم لمكانه. اسحب التصنيف وتتحرك معه رومّاته. الروم يدخل تحت التصنيف اللي فوقه. بعدين اضغط «حفظ الترتيب».</p>
       <div class="alert warn" id="ordNote" hidden>⚠️ تغيّر ترتيب الرومات من جهاز ثاني وعندك ترتيب ما انحفظ.
@@ -1035,6 +1115,7 @@ app.get("/", requireAuth, (req, res) => {
     </section>
     <section class="card"><h2>📜 السجل (من غيّر وش ومتى)</h2><div id="hist"><p class="muted">جاري التحميل…</p></div></section>`)}
 
+
     <script src="/client.js?v=${BUILD}"></script>`, true));
 });
 
@@ -1045,7 +1126,9 @@ const sseWrite = (c, ev, data) => { try { c.res.write(`event: ${ev}\ndata: ${JSO
 const toGuild = (gid, ev, data) => { for (const c of clients) if (c.gid === gid) sseWrite(c, ev, data); };
 const toAll = (ev, data) => { for (const c of clients) sseWrite(c, ev, data); };
 const online = () => new Set([...clients].map(c => c.cid)).size;
-const setGuild = (sid, gid) => { for (const c of clients) if (c.sid === sid) c.gid = gid; };
+// السيرفر المختار مشترك بين كل المتصلين
+let SHARED_GUILD = "";
+const curGuild = req => SHARED_GUILD || req.session.guildId || "";
 
 app.get("/events", requireApi, (req, res) => {
   res.set({
@@ -1059,7 +1142,7 @@ app.get("/events", requireApi, (req, res) => {
   const c = {
     res, sid: req.sessionID,
     cid: String(req.query.cid || crypto.randomBytes(6).toString("hex")).slice(0, 40),
-    gid: req.session.guildId || ""
+    gid: curGuild(req)
   };
   clients.add(c);
   sseWrite(c, "hello", { n: online(), job: activeJobs.get(c.gid) || null });
@@ -1121,15 +1204,17 @@ app.use("/api", requireApi, async (req, res) => {
   try {
     if (req.path === "/guild" && req.method === "POST") {
       const g = String((req.body && req.body.guildId) || "");
-      req.session.guildId = g; setGuild(req.sessionID, g);
+      req.session.guildId = g; SHARED_GUILD = g;
+      for (const c of clients) c.gid = g;
+      toAll("guild", { gid: g, by: String(req.get("x-cid") || "").slice(0, 40) });
       return res.json({ ok: true });
     }
-    const gid = req.session.guildId || "";
+    const gid = curGuild(req);
     let path = req.originalUrl;
     if (req.method === "GET") path += (path.includes("?") ? "&" : "?") + "guildId=" + encodeURIComponent(gid);
     const body = req.method === "GET" ? undefined : { ...req.body, guildId: gid };
     const j = await bot(path, req.method, body, req.ip);
-    if (req.path === "/state") { req.session.guildId = j.guildId; setGuild(req.sessionID, j.guildId); }
+    if (req.path === "/state" && j.guildId) { req.session.guildId = j.guildId; if (!SHARED_GUILD) SHARED_GUILD = j.guildId; for (const c of clients) if (c.sid === req.sessionID && !c.gid) c.gid = j.guildId; }
     if (req.method !== "GET") afterMutation(req, gid, j);
     res.json(j);
   } catch (e) { res.status(500).json({ error: e.message }); }
