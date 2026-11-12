@@ -1,6 +1,7 @@
 // Role Vault WEB v3 — الموقع (بدون توكن البوت) — يتصل بالبوت عبر API
 // متغيرات Render: SITE_PASSWORD, SESSION_SECRET, MONGODB_URI, BOT_URL, BOT_API_KEY
 // ربط القفل مع المواقع (اختياري): FLASH_MONGO_URI (قاعدة فلاش) , LOCK_SYNC_URIS (قواعد مواقع ثانية بفاصلة) , LOCK_SYNC_GUILD_ID (آيدي سيرفر وزارة الداخلية)
+// v3.1: تبويب «طلبات البوتات» (قبول/رفض البوتات الجديدة) — يحتاج بوت v2.1 (bot_3.js المعدّل)
 // v3: تحديث فوري لكل المتصلين (SSE) + نوافذ وقوائم من تصميم الموقع بدل نوافذ الآيفون + تصميم جديد
 const express = require("express");
 const session = require("express-session");
@@ -211,6 +212,25 @@ input.shs{width:calc(100% - 28px);margin:6px 14px 8px}
 @keyframes pulse{50%{box-shadow:0 0 0 6px #e11d4833}}
 .hist{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)}
 .hist:last-child{border-bottom:0}
+/* طلبات البوتات */
+.bq{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--panel2);margin:10px 0}
+.bq.pend{border-color:#92661a;background:linear-gradient(180deg,#2a2210,var(--panel2))}
+.bq-top{display:flex;align-items:center;gap:12px;min-width:0}
+.bq-av{width:58px;height:58px;border-radius:50%;object-fit:cover;background:var(--panel3);flex:0 0 auto;display:grid;place-items:center;font-size:26px;border:2px solid var(--line2)}
+.bq-av.sm{width:34px;height:34px;font-size:16px;border-width:1px}
+.bq-nm{min-width:0;flex:1;overflow-wrap:anywhere}
+.bq-nm b{font-size:17px}
+.bq-nm small{display:block;color:var(--muted);direction:ltr;text-align:right;font-size:12px}
+.bq-meta{display:flex;gap:10px 22px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:14px}
+.bq-by{display:inline-flex;align-items:center;gap:8px;color:var(--text);font-weight:700;min-width:0}
+.bq-act{display:flex;gap:8px;flex-wrap:wrap}
+.bq-act .btn{flex:1;min-width:130px}
+.chip{display:inline-block;padding:2px 11px;border-radius:999px;font-size:12px;font-weight:800;border:1px solid var(--line);white-space:nowrap}
+.chip.ok{background:#0b2f25;border-color:#10805b;color:#6ee7b7}
+.chip.no{background:#3b1220;border-color:#9f1d3f;color:#fda4af}
+.chip.wait{background:#3a2a0b;border-color:#92661a;color:#fcd34d}
+.chip.gray{background:var(--panel3);color:var(--muted)}
+.tbadge{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;margin-inline-start:6px;border-radius:99px;background:var(--red);color:#fff;font-size:12px;font-weight:900}
 /* محرر صلاحيات الروم */
 .seg{display:flex;gap:4px;flex:0 0 auto;background:#0a1122;border:1px solid var(--line);border-radius:12px;padding:3px}
 .sg{border:0;background:transparent;color:var(--muted);min-width:40px;min-height:38px;border-radius:9px;font:inherit;font-size:15px;cursor:pointer}
@@ -318,7 +338,8 @@ const clientJs = String.raw`(function(){
 var S=null,M=null,busy=false,fbusy=null,chosen={},chCh={},sig={},loading=false,again=false,loadP=null;
 var ordDirty=false,setDirty=false,permForce=false,bkPending=false,wasDown=false,es=null,curTab='roles',ct=null,lastD=null;
 var CID=Math.random().toString(36).slice(2,10)+Date.now().toString(36);
-var TABS=['roles','perms','chans','check','safe'];
+var TABS=['roles','perms','chans','check','bots','safe'];
+var lastP=null;
 var DRY_OK={'/api/delete':1,'/api/restore':1,'/api/role-perms':1,'/api/copy-role':1,'/api/copy-channel':1,'/api/bulk':1,'/api/template':1,'/api/lockdown':1,'/api/reorder':1};
 function $(i){return document.getElementById(i)}
 function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
@@ -463,6 +484,7 @@ function tab(name){
   TABS.forEach(function(t){$('t-'+t).hidden=(t!==name);$('b-'+t).classList.toggle('on',t===name)});
   try{history.replaceState(null,'','#'+name)}catch(e){}
   if(name==='safe'){loadHistory();loadSync()}
+  if(name==='bots')loadBots();
 }
 function applyQ(){
   var q=val('q').trim().toLowerCase(),n=document.querySelectorAll('.srch');
@@ -803,6 +825,62 @@ function loadHistory(){
     });
   }).catch(function(e){showMsg(e.message)});
 }
+/* ===== طلبات البوتات ===== */
+function safeImg(u){return typeof u==='string'&&u.indexOf('https://cdn.discordapp.com/')===0}
+function avatar(url,cls,fb){
+  if(safeImg(url)){var i=document.createElement('img');i.className=cls;i.src=url;i.alt='';i.loading='lazy';i.referrerPolicy='no-referrer';return i}
+  return el('span',cls,fb)
+}
+function fmtDate(d){return d?new Date(d).toLocaleString('ar-SA'):''}
+function setBotBadge(n){var b=$('botBadge');b.textContent=n;b.hidden=!n}
+function botCard(x,pending){
+  var c=el('div','bq'+(pending?' pend':'')),top=el('div','bq-top');
+  top.appendChild(avatar(x.botAvatar,'bq-av','🤖'));
+  var nm=el('div','bq-nm');nm.appendChild(el('b',null,x.botName||x.botTag));nm.appendChild(el('small',null,'@'+(x.botTag||'')+' · '+x.botId));
+  top.appendChild(nm);
+  var st={pending:['wait','⏳ بانتظار القرار'],working:['wait','⏳ جاري التنفيذ'],approved:['ok','✅ مقبول'],rejected:['no','⛔ مرفوض'],left:['gray','طلع قبل القرار']}[x.status]||['gray',x.status];
+  top.appendChild(el('span','chip '+st[0],st[1]));c.appendChild(top);
+  var meta=el('div','bq-meta'),by=el('span','bq-by');
+  by.appendChild(el('span','muted','أضافه:'));
+  if(x.addedById||x.addedByName){by.appendChild(avatar(x.addedByAvatar,'bq-av sm','👤'));by.appendChild(el('span',null,x.addedByName||x.addedById))}
+  else by.appendChild(el('span','muted','غير معروف (يحتاج صلاحية «عرض سجل السيرفر» للبوت)'));
+  meta.appendChild(by);
+  meta.appendChild(el('span',null,'📅 '+fmtDate(x.createdAt)));
+  if(!pending&&x.decidedAt)meta.appendChild(el('span',null,'🕓 '+fmtDate(x.decidedAt)+(x.decidedBy?' · '+x.decidedBy:'')));
+  c.appendChild(meta);
+  if(x.danger&&x.danger.length)c.appendChild(el('div','alert error','⚠️ يطلب صلاحيات خطيرة: '+x.danger.join('، ')));
+  if(pending&&!x.frozen)c.appendChild(el('div','alert warn','⚠️ '+(x.note||'ما تجمّدت صلاحياته')+' — البوت شغّال بصلاحياته الحالية لين تقرر.'));
+  if(pending&&x.status==='pending'){
+    var act=el('div','bq-act'),ok=el('button','btn good','✅ قبول'),no=el('button','btn danger','⛔ رفض وطرد');
+    ok.type='button';no.type='button';
+    ok.addEventListener('click',function(){decideBot(x,'approve')});
+    no.addEventListener('click',function(){decideBot(x,'reject')});
+    act.appendChild(ok);act.appendChild(no);c.appendChild(act);
+  }
+  return c;
+}
+function renderBots(j){
+  var p=$('botPend'),d=$('botDone');p.textContent='';d.textContent='';
+  if(!j.pending.length)p.appendChild(el('p','muted','ما فيه طلبات معلّقة 👌'));
+  j.pending.forEach(function(x){p.appendChild(botCard(x,true))});
+  if(!j.done.length)d.appendChild(el('p','muted','ما فيه قرارات سابقة.'));
+  j.done.forEach(function(x){d.appendChild(botCard(x,false))});
+  setBotBadge(j.pending.length);
+}
+function loadBots(){
+  return api('/api/bot-requests').then(renderBots).catch(function(e){showMsg(e.message)});
+}
+function decideBot(x,action){
+  var yes=action==='approve';
+  ask(yes?('قبول البوت «'+(x.botName||x.botTag)+'»؟ ترجع له صلاحياته ويكمل في السيرفر.'):('رفض البوت «'+(x.botName||x.botTag)+'»؟ ينطرد من السيرفر.'),
+    {title:yes?'قبول بوت':'رفض بوت',ok:yes?'قبول':'رفض وطرد',danger:!yes,icon:yes?'✅':'⛔'}).then(function(ok){
+    if(!ok)return;
+    api('/api/bot-requests/decide','POST',{id:x.id,action:action},yes?'قبول بوت':'رفض بوت')
+      .then(function(){toast(yes?'✅ تم قبول البوت':'⛔ تم رفض البوت وطرده',yes?'ok':'warn')})
+      .catch(function(e){toast(e.message,'warn',5000)})
+      .then(loadBots);
+  });
+}
 function loadSync(){
   api('/sync/status').then(function(j){
     var t=$('syncState');if(!t)return;
@@ -813,13 +891,13 @@ function loadSync(){
 function decodeURIComponentSafe(s){try{return decodeURIComponent(s)}catch(e){return s}}
 
 function resetForGuild(){
-  chosen={};chCh={};ordDirty=false;setDirty=false;permForce=true;bkPending=false;
+  chosen={};chCh={};ordDirty=false;setDirty=false;permForce=true;bkPending=false;lastP=null;
   [].forEach.call(document.querySelectorAll('#backups details.restore[open]'),function(d){d.open=false});
 }
 /* ===== التحميل (ذكي: يحدّث الأجزاء اللي تغيّرت فقط) ===== */
 function applyState(s){
   S=s;showMsg('');
-  var n={g:h([s.guilds,s.guildId,s.guildName]),r:h(s.roles),c:h(s.channels),b:h(s.backups),l:h([s.lock,s.settings])};
+  var n={g:h([s.guilds,s.guildId,s.guildName]),r:h(s.roles),c:h(s.channels),b:h(s.backups),l:h([s.lock,s.settings]),p:h(s.botPending||0)};
   var ch={},any=false;for(var k in n){ch[k]=(n[k]!==sig[k]);if(ch[k])any=true;sig[k]=n[k]}
   if(ch.g)renderGuilds();
   if(ch.r)renderRoles();
@@ -828,6 +906,11 @@ function applyState(s){
   if(ch.c){renderChans();renderOrder()}
   if(ch.r||ch.b)renderBackups();
   if(ch.r||ch.l)renderSafe();
+  if(ch.p){
+    var np=s.botPending||0;setBotBadge(np);
+    if(lastP!==null&&np>lastP)toast('🤖 طلب بوت جديد بانتظار القرار','warn',5000);
+    lastP=np;if(curTab==='bots')loadBots();
+  }
   if(any){renderStats();applyQ()}
   return any;
 }
@@ -985,6 +1068,7 @@ app.get("/", requireAuth, (req, res) => {
       <button class="tab" id="b-perms" type="button">🔑 الصلاحيات</button>
       <button class="tab" id="b-chans" type="button">💬 الرومات</button>
       <button class="tab" id="b-check" type="button">🔍 فحص ومقارنة</button>
+      <button class="tab" id="b-bots" type="button">🤖 طلبات البوتات<span class="tbadge" id="botBadge" hidden>0</span></button>
       <button class="tab red" id="b-safe" type="button">🚨 الأمان والسجل</button>
     </div>
 
@@ -1101,6 +1185,17 @@ app.get("/", requireAuth, (req, res) => {
       <h2>🩺 كشف المشاكل</h2>
       <p class="muted">رومات مفتوحة للكل بالغلط، رتب مكررة، رتب فاضية، وصلاحيات خطيرة.</p>
       <button class="btn secondary" type="button" id="probBtn">افحص السيرفر</button>
+    </section>`)}
+
+    ${sec("bots", `
+    <section class="card">
+      <h2>🤖 طلبات تسجيل البوتات</h2>
+      <p class="muted">أي بوت جديد يدخل السيرفر يوصل هنا كطلب معلّق وتتجمّد صلاحياته لين تقرر. <b>قبول</b> = البوت يكمل وترجع صلاحياته. <b>رفض</b> = ينطرد من السيرفر.</p>
+      <div id="botPend"><p class="muted">جاري التحميل…</p></div>
+    </section>
+    <section class="card">
+      <h2>🗂️ آخر القرارات</h2>
+      <div id="botDone"><p class="muted">جاري التحميل…</p></div>
     </section>`)}
 
     ${sec("safe", `
