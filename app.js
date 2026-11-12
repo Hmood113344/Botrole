@@ -1,12 +1,14 @@
 // Role Vault WEB v3 — الموقع (بدون توكن البوت) — يتصل بالبوت عبر API
 // متغيرات Render: SITE_PASSWORD, SESSION_SECRET, MONGODB_URI, BOT_URL, BOT_API_KEY
+// ربط القفل مع المواقع (اختياري): FLASH_MONGO_URI (قاعدة فلاش) , LOCK_SYNC_URIS (قواعد مواقع ثانية بفاصلة) , LOCK_SYNC_GUILD_ID (آيدي سيرفر وزارة الداخلية)
 // v3: تحديث فوري لكل المتصلين (SSE) + نوافذ وقوائم من تصميم الموقع بدل نوافذ الآيفون + تصميم جديد
 const express = require("express");
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
 const crypto = require("crypto");
 
-const { SITE_PASSWORD, SESSION_SECRET, MONGODB_URI, BOT_URL, BOT_API_KEY } = process.env;
+const { SITE_PASSWORD, SESSION_SECRET, MONGODB_URI, BOT_URL, BOT_API_KEY, FLASH_MONGO_URI, LOCK_SYNC_URIS, LOCK_SYNC_GUILD_ID } = process.env;
+const SYNC_URIS = [...new Set([FLASH_MONGO_URI, ...String(LOCK_SYNC_URIS || "").split(",")].map(s => String(s || "").trim()).filter(Boolean))];
 const PORT = process.env.PORT || 10000;
 if (!SITE_PASSWORD || !SESSION_SECRET || !MONGODB_URI || !BOT_URL || !BOT_API_KEY) {
   console.error("Missing env: SITE_PASSWORD, SESSION_SECRET, MONGODB_URI, BOT_URL, BOT_API_KEY");
@@ -460,7 +462,7 @@ function tab(name){
   curTab=name;
   TABS.forEach(function(t){$('t-'+t).hidden=(t!==name);$('b-'+t).classList.toggle('on',t===name)});
   try{history.replaceState(null,'','#'+name)}catch(e){}
-  if(name==='safe')loadHistory();
+  if(name==='safe'){loadHistory();loadSync()}
 }
 function applyQ(){
   var q=val('q').trim().toLowerCase(),n=document.querySelectorAll('.srch');
@@ -801,6 +803,13 @@ function loadHistory(){
     });
   }).catch(function(e){showMsg(e.message)});
 }
+function loadSync(){
+  api('/sync/status').then(function(j){
+    var t=$('syncState');if(!t)return;
+    if(!j.targets){t.textContent='🔗 ربط المواقع: غير مفعّل (حط FLASH_MONGO_URI)';return}
+    t.textContent=j.error?('🔗 ربط المواقع: ⚠️ '+j.error):('🔗 مرتبط مع '+j.targets+' موقع'+(j.last?' · آخر مزامنة '+new Date(j.last).toLocaleTimeString('ar-SA'):' · بانتظار أول مزامنة'));
+  }).catch(function(){});
+}
 function decodeURIComponentSafe(s){try{return decodeURIComponent(s)}catch(e){return s}}
 
 function resetForGuild(){
@@ -842,7 +851,7 @@ function onChanged(d){
     var d2=lastD;lastD=null;
     load().then(function(changed){
       if(changed&&d2&&d2.by!==CID)toast(d2.why?('🔄 تحديث مباشر: '+d2.why):'🔄 تم تحديث البيانات مباشرةً','info');
-      if(curTab==='safe')loadHistory();
+      if(curTab==='safe'){loadHistory();loadSync()}
     });
   },200);
 }
@@ -915,7 +924,7 @@ $('ordReset').addEventListener('click',function(){renderOrder(true)});
 $('efBtn').addEventListener('click',doEffective);
 $('probBtn').addEventListener('click',doProblems);
 $('lockBtn').addEventListener('click',function(){
-  maybe('تُخفى كل الرومات عن الجميع وينشأ روم تحذير.\nمتأكد تبي تقفل السيرفر؟',{title:'قفل الطوارئ',ok:'🚨 اقفل الآن',danger:true,icon:'🚨'}).then(function(ok){
+  maybe('تُخفى كل الرومات عن الجميع وينشأ روم تحذير، وتنقفل المواقع المرتبطة (فلاش) بشاشة حمراء فيها نص الإنذار.\nمتأكد تبي تقفل السيرفر؟',{title:'قفل الطوارئ',ok:'🚨 اقفل الآن',danger:true,icon:'🚨'}).then(function(ok){
     if(ok)runJob('🚨 قفل الطوارئ','/api/lockdown',{reason:val('lockReason'),clearChannelId:val('lockClear').trim()},true);
   });
 });
@@ -1098,9 +1107,10 @@ app.get("/", requireAuth, (req, res) => {
     <section class="card lockbox" id="lockBox">
       <h2>🚨 قفل الطوارئ</h2>
       <p id="lockState" style="font-weight:800"></p>
+      <p class="muted" id="syncState" style="margin-top:-6px"></p>
       <p class="muted">وقت الهجوم أو الاشتباه: يخفي كل الرومات عن الجميع (حتى الرتب الأعلى من البوت) ما عدا مالك السيرفر والرتب المستثناة، وينشئ روم «سيرفر مغلق» برسالة تحذير طويلة، ويوقف الدعوات. الفتح يرجع كل شي كما كان.</p>
       <div class="alert error">⚠️ رتبة «مدير كامل» (Administrator) تتجاوز أي إخفاء، وديسكورد ما يسمح بحجبها.</div>
-      <input type="text" id="lockReason" maxlength="300" placeholder="سبب القفل (اختياري)">
+      <input type="text" id="lockReason" placeholder="نص الإنذار / سبب القفل (يطلع بشاشة حمراء في فلاش)" maxlength="300">
       <input type="text" id="lockClear" inputmode="numeric" placeholder="آيدي شات زوال الخطر (تنرسل فيه رسالة الفتح بالمنشن)">
       <button class="btn danger" type="button" id="lockBtn">🚨 قفل السيرفر الآن</button>
       <button class="btn good" type="button" id="unlockBtn" hidden>🔓 فتح السيرفر</button>
@@ -1151,6 +1161,61 @@ app.get("/events", requireApi, (req, res) => {
   req.on("close", () => { clearInterval(hb); clients.delete(c); toAll("presence", { n: online() }); });
 });
 
+
+// ============ ربط القفل مع المواقع الثانية (فلاش…) عبر قاعدة بياناتها ============
+let MongoClient = null;
+try { ({ MongoClient } = require("mongodb")); } catch {}
+const syncConns = new Map();
+const syncInfo = { last: null, error: "" };
+const lockStates = new Map();
+const lockReasons = new Map();
+const lockPending = new Set();
+let synced = null, syncing = false;
+const lockGuildOk = gid => !LOCK_SYNC_GUILD_ID || gid === LOCK_SYNC_GUILD_ID;
+
+async function syncDb(uri) {
+  let p = syncConns.get(uri);
+  if (!p) { p = new MongoClient(uri, { serverSelectionTimeoutMS: 8000, maxPoolSize: 2 }).connect(); syncConns.set(uri, p); }
+  try { return (await p).db(); } catch (e) { syncConns.delete(uri); throw e; }
+}
+async function writeLock(active, reason) {
+  if (!MongoClient) { syncInfo.error = "مكتبة mongodb غير مثبتة (أضفها في package.json)"; return false; }
+  const doc = { active: !!active, reason: String(reason || "").slice(0, 600), title: "", by: "role-vault", at: new Date() };
+  let ok = 0; const errs = [];
+  for (const uri of SYNC_URIS) {
+    try {
+      const db = await syncDb(uri);
+      await db.collection("rolevault_lock").updateOne({ _id: "lock" }, { $set: doc, $inc: { rev: 1 } }, { upsert: true });
+      ok++;
+    } catch (e) { errs.push(e.message); }
+  }
+  syncInfo.error = errs.join(" | ").slice(0, 300);
+  if (ok === SYNC_URIS.length) { syncInfo.last = Date.now(); return true; }
+  return false;
+}
+async function reconcileLock() {
+  if (!SYNC_URIS.length || syncing) return;
+  syncing = true;
+  try {
+    let active = false, reason = "";
+    for (const [gid, s] of lockStates) if (lockGuildOk(gid) && s.active) { active = true; reason = s.reason || reason; }
+    if (synced && synced.active === active && (!active || synced.reason === reason)) return;
+    if (await writeLock(active, active ? (reason || "تم قفل السيرفر لأسباب أمنية.") : "")) synced = { active, reason };
+  } finally { syncing = false; }
+}
+function noteLock(gid, j) {
+  const L = j && j.lock;
+  if (!L || !lockGuildOk(gid)) return;
+  const active = !!L.active;
+  if (!active && lockPending.has(gid)) return;
+  const reason = String(L.reason || L.message || lockReasons.get(gid) || "");
+  lockStates.set(gid, { active, reason });
+  if (!active) lockReasons.delete(gid);
+}
+app.get("/sync/status", requireApi, (req, res) => {
+  res.json({ targets: SYNC_URIS.length, driver: !!MongoClient, last: syncInfo.last, error: syncInfo.error, active: synced ? synced.active : null });
+});
+
 // يتابع العملية لين تخلص ثم يبلّغ الكل يحدّثون
 async function watchJob(jobId, gid, by, title) {
   activeJobs.set(gid, { jobId, title, by });
@@ -1167,7 +1232,9 @@ async function watchJob(jobId, gid, by, title) {
   }
   const a = activeJobs.get(gid);
   if (a && a.jobId === jobId) activeJobs.delete(gid);
+  lockPending.delete(gid);
   toGuild(gid, "changed", { by, why: title });
+  if (SYNC_URIS.length) { try { noteLock(gid, await bot("/api/state?guildId=" + encodeURIComponent(gid), "GET", undefined, "auto")); } catch {} reconcileLock(); }
 }
 
 // يراقب تغييرات تصير من برا الموقع (أوامر ديسكورد، النسخ التلقائي…)
@@ -1177,6 +1244,7 @@ async function watchTick() {
   if (ticking) return; ticking = true;
   try {
     const gids = new Set([...clients].map(c => c.gid).filter(Boolean));
+    if (SYNC_URIS.length && LOCK_SYNC_GUILD_ID) gids.add(LOCK_SYNC_GUILD_ID);
     for (const gid of gids) {
       try {
         const j = await bot("/api/state?guildId=" + encodeURIComponent(gid), "GET", undefined, "auto");
@@ -1184,8 +1252,10 @@ async function watchTick() {
         const prev = lastSig.get(gid);
         lastSig.set(gid, s);
         if (prev && prev !== s) toGuild(gid, "changed", { by: "bot" });
+        if (SYNC_URIS.length) noteLock(gid, j);
       } catch {}
     }
+    if (SYNC_URIS.length) reconcileLock();
     for (const g of [...lastSig.keys()]) if (!gids.has(g)) lastSig.delete(g);
   } finally { ticking = false; }
 }
@@ -1195,6 +1265,12 @@ function afterMutation(req, gid, j) {
   const cid = String(req.get("x-cid") || "").slice(0, 40);
   let title = ""; try { title = decodeURIComponent(req.get("x-job-title") || ""); } catch {}
   title = title.slice(0, 80);
+  if (SYNC_URIS.length && req.path === "/lockdown" && !(req.body && req.body.dry)) {
+    const reason = String((req.body && req.body.reason) || "").trim();
+    lockReasons.set(gid, reason); lockStates.set(gid, { active: true, reason }); lockPending.add(gid);
+    reconcileLock();
+  }
+  if (SYNC_URIS.length && req.path === "/unlock" && !(req.body && req.body.dry)) lockReasons.delete(gid);
   if (j && j.jobId) watchJob(j.jobId, gid, cid, title);
   else toGuild(gid, "changed", { by: cid, why: title });
 }
